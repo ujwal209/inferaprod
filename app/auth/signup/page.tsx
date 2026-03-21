@@ -110,8 +110,9 @@ export default function SignupPage() {
   }
 
   const isOtpFormValid = () => {
-    if (userDataCache?.email && emailOtp.length < 6) return false
-    if (userDataCache?.phone && phoneOtp.length < 6) return false
+    // Unlocks the submit button only when 8 digits are entered
+    if (userDataCache?.email && emailOtp.length < 8) return false
+    if (userDataCache?.phone && phoneOtp.length < 8) return false
     return true
   }
 
@@ -311,10 +312,10 @@ export default function SignupPage() {
                         <Input 
                           value={emailOtp}
                           onChange={(e) => setEmailOtp(e.target.value)}
-                          maxLength={6}
+                          maxLength={8}
                           required
-                          className="h-16 sm:h-20 text-center text-2xl sm:text-3xl font-mono font-bold tracking-[0.3em] sm:tracking-[0.4em] pl-[0.4em] rounded-2xl bg-zinc-50 dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-zinc-800 transition-all uppercase shadow-inner text-zinc-900 dark:text-white" 
-                          placeholder="------" 
+                          className="h-16 sm:h-20 text-center text-xl sm:text-2xl font-mono font-bold tracking-[0.2em] sm:tracking-[0.3em] pl-[0.2em] sm:pl-[0.3em] rounded-2xl bg-zinc-50 dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-zinc-800 transition-all uppercase shadow-inner text-zinc-900 dark:text-white" 
+                          placeholder="--------" 
                         />
                         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mt-2 truncate px-2">Sent to {userDataCache.email}</p>
                       </div>
@@ -326,10 +327,10 @@ export default function SignupPage() {
                         <Input 
                           value={phoneOtp}
                           onChange={(e) => setPhoneOtp(e.target.value)}
-                          maxLength={6}
+                          maxLength={8}
                           required
-                          className="h-16 sm:h-20 text-center text-2xl sm:text-3xl font-mono font-bold tracking-[0.3em] sm:tracking-[0.4em] pl-[0.4em] rounded-2xl bg-zinc-50 dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-zinc-800 transition-all uppercase shadow-inner text-zinc-900 dark:text-white" 
-                          placeholder="------" 
+                          className="h-16 sm:h-20 text-center text-xl sm:text-2xl font-mono font-bold tracking-[0.2em] sm:tracking-[0.3em] pl-[0.2em] sm:pl-[0.3em] rounded-2xl bg-zinc-50 dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-zinc-800 transition-all uppercase shadow-inner text-zinc-900 dark:text-white" 
+                          placeholder="--------" 
                         />
                         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mt-2">Sent to {userDataCache.phone}</p>
                       </div>
