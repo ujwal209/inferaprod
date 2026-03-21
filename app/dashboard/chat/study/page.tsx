@@ -223,7 +223,6 @@ const MarkdownComponents = {
   ul: ({ children }: any) => <ul className="list-disc pl-5 space-y-2 mb-4 font-outfit text-[15.5px] sm:text-[16px] text-zinc-800 dark:text-zinc-300">{children}</ul>,
   ol: ({ children }: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 font-outfit text-[15.5px] sm:text-[16px] text-zinc-800 dark:text-zinc-300">{children}</ol>,
   
-  // FIX: Explicitly render children inside the <li> tag to prevent empty list items
   li: ({ children, ...props }: any) => <li className="pl-1 leading-relaxed marker:text-zinc-400 dark:marker:text-zinc-600" {...props}>{children}</li>,
   
   strong: ({ children }: any) => <strong className="font-bold text-zinc-900 dark:text-white">{children}</strong>,
@@ -359,7 +358,6 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
   return (
     <div className={`group flex flex-col gap-1 w-full animate-in fade-in ${isUser ? 'items-end' : 'items-start'}`}>
       
-      {/* MATH OVERFLOW FIX: w-full and min-w-0 ensure the bubble doesn't break the grid layout */}
       <div className={`relative max-w-[98%] sm:max-w-[92%] md:max-w-[88%] min-w-0 ${
         isUser 
         ? 'bg-zinc-900 dark:bg-zinc-100 px-5 sm:px-6 py-3.5 sm:py-4 rounded-[1.5rem] rounded-tr-md text-white dark:text-zinc-900 shadow-sm border border-zinc-800 dark:border-zinc-200' 
@@ -442,7 +440,6 @@ const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping }: any) => {
 
   return (
     <div className="w-full max-w-4xl mx-auto pointer-events-auto">
-      {/* Crisp Border and Glassmorphism */}
       <div className="bg-white/90 dark:bg-[#0c0c0e]/90 backdrop-blur-2xl border border-zinc-300 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-600 focus-within:border-blue-500 dark:focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/15 rounded-2xl sm:rounded-3xl shadow-[0_8px_30px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] transition-all duration-300 overflow-hidden flex flex-col">
         
         <div className="flex items-end gap-4 px-5 pt-4 pb-2">
@@ -517,7 +514,7 @@ const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping }: any) => {
 
 
 // ==========================================
-// 7. INIT FORM
+// 7. INIT FORM (FIXED RESPONSIVENESS)
 // ==========================================
 
 const SUGGESTIONS = [
@@ -538,24 +535,25 @@ const InitForm = ({ onSubmit, loading }: { onSubmit: (e: any) => void, loading: 
   }
 
   return (
-    <div className="w-full max-w-4xl flex flex-col items-center justify-center min-h-full animate-in fade-in slide-in-from-bottom-2 duration-700 mx-auto px-2 sm:px-4 font-sans py-12">
+    <div className="w-full max-w-4xl mx-auto flex flex-col justify-center animate-in fade-in slide-in-from-bottom-2 duration-700 px-2 sm:px-4 md:px-6">
       
-      <div className="flex items-center justify-center gap-3 md:gap-6 mb-8 md:mb-12 w-full">
+      {/* FIXED LOGO HEADER: Stacks on mobile, side-by-side on desktop */}
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-6 mb-8 md:mb-12 w-full text-center sm:text-left">
         <Image 
           src="/logo.png" 
           width={220}
           height={58}
           alt="InfraCore Logo" 
-          className="w-[120px] sm:w-[150px] md:w-[220px] h-auto dark:invert object-contain opacity-95 transition-all duration-500 hover:scale-105 shrink-0" 
+          className="w-[140px] sm:w-[160px] md:w-[220px] h-auto dark:invert object-contain opacity-95 transition-all duration-500 shrink-0" 
           priority 
         />
-        <div className="h-6 md:h-10 w-[1.5px] bg-zinc-200 dark:bg-zinc-800 rounded-full shrink-0" />
-        <span className="font-google-sans text-[16px] sm:text-[18px] md:text-[22px] font-bold text-blue-600 dark:text-blue-400 tracking-tight whitespace-nowrap pt-1">
+        <div className="hidden sm:block h-8 md:h-10 w-[1.5px] bg-zinc-200 dark:bg-zinc-800 rounded-full shrink-0" />
+        <span className="font-google-sans text-[18px] sm:text-[20px] md:text-[24px] font-bold text-blue-600 dark:text-blue-400 tracking-tight whitespace-nowrap pt-1">
           Study Agent
         </span>
       </div>
       
-      <div className="w-full text-left bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 focus-within:border-blue-500 dark:focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10 rounded-3xl shadow-xl dark:shadow-none p-6 md:p-10 transition-all duration-300">
+      <div className="w-full text-left bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 focus-within:border-blue-500 dark:focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10 rounded-3xl shadow-xl dark:shadow-none p-5 sm:p-8 md:p-10 transition-all duration-300">
         <form onSubmit={onSubmit} className="flex flex-col gap-5 md:gap-8">
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
@@ -605,9 +603,9 @@ const InitForm = ({ onSubmit, loading }: { onSubmit: (e: any) => void, loading: 
             />
           </div>
 
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-4 md:pt-6 border-t border-zinc-100 dark:border-zinc-800/60 mt-1 md:mt-2">
+          <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6 pt-5 md:pt-6 border-t border-zinc-100 dark:border-zinc-800/60 mt-1 md:mt-2">
             
-            <div className="flex flex-wrap gap-2 justify-center md:justify-start">
+            <div className="flex flex-wrap gap-2 justify-start w-full xl:w-auto">
               {SUGGESTIONS.map((s, idx) => (
                 <button 
                   key={idx} 
@@ -624,7 +622,7 @@ const InitForm = ({ onSubmit, loading }: { onSubmit: (e: any) => void, loading: 
             <button 
               type="submit" 
               disabled={loading} 
-              className="w-full md:w-auto px-8 md:px-10 py-3.5 md:py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl md:rounded-2xl font-google-sans text-[14px] font-bold shadow-[0_8px_20px_rgba(37,99,235,0.25)] transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-70 group shrink-0"
+              className="w-full xl:w-auto px-8 md:px-10 py-3.5 md:py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl md:rounded-2xl font-google-sans text-[14px] font-bold shadow-[0_8px_20px_rgba(37,99,235,0.25)] transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-70 group shrink-0"
             >
               {loading ? (
                 <>
@@ -673,7 +671,6 @@ const HistorySidebar = React.memo(({ sessions, sessionId, filter, setFilter, loa
               {isSelectMode && (
                 <button 
                   onClick={async () => {
-                    // NO ALERTS: Directly map and delete
                     const ids = filteredSessions.map((s: any) => s.id);
                     for (let id of ids) {
                       await handleDelete({ stopPropagation: () => {} } as any, id);
@@ -929,7 +926,6 @@ export default function StudyChatPage() {
         }
       `}} />
 
-      {/* STRICT NON-SCROLLABLE WRAPPER (h-[100dvh] + overflow-hidden) */}
       <div className="fixed inset-0 top-[64px] sm:top-[72px] flex w-full overflow-hidden bg-[#fafafa] dark:bg-[#050505] font-outfit text-zinc-900 dark:text-zinc-100 antialiased selection:bg-blue-500/20">
         
         {/* SIDEBAR NAVIGATION */}
@@ -972,8 +968,11 @@ export default function StudyChatPage() {
           </header>
 
           {!messages.length ? (
-            <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center p-4 sm:p-8 custom-scrollbar">
-              <InitForm onSubmit={handleInitSubmit} loading={loading} />
+            /* FIXED: Removed justify-center and used m-auto in the child to prevent top cutoff */
+            <div className="flex-1 overflow-y-auto flex flex-col p-4 sm:p-8 custom-scrollbar">
+              <div className="m-auto w-full pt-16 pb-10">
+                <InitForm onSubmit={handleInitSubmit} loading={loading} />
+              </div>
             </div>
           ) : (
             <>
@@ -1004,12 +1003,11 @@ export default function StudyChatPage() {
                     </div>
                   )}
 
-                  {/* MASSIVE BOTTOM BUMPER: Ensures the last message scrolls high above the fixed prompt bar */}
                   <div className="h-[200px] sm:h-[240px]" />
                 </div>
               </div>
               
-              {/* FIXED BOTTOM PROMPT BAR WRAPPER: Absolutely positioned to the bottom so it never scrolls */}
+              {/* FIXED BOTTOM PROMPT BAR WRAPPER */}
               <div className="absolute bottom-0 left-0 right-0 z-30 p-4 sm:p-6 bg-gradient-to-t from-[#fafafa] via-[#fafafa] dark:from-[#050505] dark:via-[#050505] to-transparent pt-24 pointer-events-none">
                 <ActivePromptBar onSubmit={handleChatSubmit} onStop={handleStop} loading={loading} isTyping={isTyping} />
               </div>
