@@ -709,8 +709,6 @@ MessageItem.displayName = 'MessageItem';
 // ==========================================
 const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryModal }: any) => {
   const [chatInput, setChatInput] = useState('');
-  const [deepSearch, setDeepSearch] = useState(false);
-  const [webAccess, setWebAccess] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -765,13 +763,6 @@ const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryMo
         </div>
 
         <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-t border-zinc-200 dark:border-zinc-800 bg-transparent overflow-x-auto scrollbar-hide">
-          <button type="button" onClick={() => setDeepSearch(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-google-sans text-[11px] font-bold transition-all shrink-0 ${deepSearch ? 'bg-violet-50 dark:bg-violet-500/10 border-violet-200 dark:border-violet-500/30 text-violet-700 dark:text-violet-400' : 'bg-transparent border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/60 text-zinc-500 dark:text-zinc-400'}`}>
-            <Zap size={12} className={deepSearch ? 'text-violet-600 dark:text-violet-400' : ''} /> Deep Think
-          </button>
-          <button type="button" onClick={() => setWebAccess(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-google-sans text-[11px] font-bold transition-all shrink-0 ${webAccess ? 'bg-blue-100 dark:bg-blue-500/10 border-blue-300 dark:border-blue-500/30 text-blue-700 dark:text-blue-400' : 'bg-transparent border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/60 text-zinc-500 dark:text-zinc-400'}`}>
-            <Globe size={12} className={webAccess ? 'text-blue-600 dark:text-blue-400' : ''} /> Web Search
-          </button>
-          <div className="w-[1px] h-3 bg-zinc-200 dark:bg-zinc-700 mx-1"></div>
           <button type="button" onClick={() => { if (!loading && !isTyping) { onSubmit("I'm ready to take a quick quiz on this concept."); } }} disabled={loading || isTyping} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/60 font-google-sans text-[11px] font-bold transition-all shrink-0 text-zinc-500 dark:text-zinc-400 disabled:opacity-50">
             <BrainCircuit size={13} className="text-pink-500" /> Take Quiz
           </button>
@@ -1222,7 +1213,7 @@ export default function StudyChatPage() {
             </div>
           ) : (
             <>
-              <div className="flex-1 overflow-y-auto p-3 sm:p-5 md:p-8 pt-20 md:pt-6 scroll-smooth custom-scrollbar" ref={scrollRef}>
+              <div className="flex-1 overflow-y-auto overflow-x-hidden w-full p-3 sm:p-5 md:p-8 pt-20 md:pt-6 scroll-smooth custom-scrollbar" ref={scrollRef}>
                 <div className="max-w-3xl mx-auto space-y-5 sm:space-y-6">
                   {messages.map((m, i) => {
                     const isNewAssistant = m.role === 'assistant' && i === lastAssistantIndex;
