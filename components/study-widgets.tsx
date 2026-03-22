@@ -169,8 +169,8 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
                         {opt}
                       </ReactMarkdown>
                     </div>
-                    {submitted && i === q.correctIndex && <CheckCircle2 size={16} className="text-emerald-500 ml-auto shrink-0 hidden sm:block" />}
-                    {submitted && i === selectedMap[qIndex] && i !== q.correctIndex && <X size={16} className="text-red-500 ml-auto shrink-0 hidden sm:block" />}
+                    {submitted && i === q.correctIndex && <CheckCircle2 size={16} className="text-emerald-500 ml-auto shrink-0" />}
+                    {submitted && i === selectedMap[qIndex] && i !== q.correctIndex && <X size={16} className="text-red-500 ml-auto shrink-0" />}
                   </button>
                 )
               })}

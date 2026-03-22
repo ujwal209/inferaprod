@@ -462,7 +462,7 @@ export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null
       }
 
       return (
-        <code className={`${inline ? 'bg-zinc-100 dark:bg-[#1f1f22] text-zinc-900 dark:text-zinc-200 px-1.5 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-800/50 break-words' : 'block p-3 bg-[#0c0c0e] text-zinc-200 overflow-x-auto rounded-xl custom-scrollbar w-full min-w-max'} font-mono text-[0.8em] font-semibold`} {...props}>
+        <code className={`${inline ? 'bg-zinc-100 dark:bg-[#1f1f22] text-zinc-900 dark:text-zinc-200 px-1.5 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-800/50 break-words' : 'block p-3 bg-[#0c0c0e] text-zinc-200 overflow-x-auto rounded-xl custom-scrollbar w-full whitespace-pre'} font-mono text-[0.8em] font-semibold`} {...props}>
           {text}
         </code>
       );
