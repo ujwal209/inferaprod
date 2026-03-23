@@ -190,10 +190,10 @@
 /* KaTeX Spacing & Visibility Overrides */
 .katex-display {
   margin: 1.75em 0 !important;   /* Increase vertical spacing from text */
-  padding: 0.5em 0;              /* Add some breathing room inside */
+  padding: 0.5em 0 0.5em 1em;    /* Add breathing room and slight indent on the left */
   overflow-x: auto;              /* Allow large matrices to scroll horizontally */
   overflow-y: hidden;
-  text-align: center;
+  text-align: left;              /* Left-align equations with chat text */
 }
 
 /* Make both inline and block math slightly more legible */
