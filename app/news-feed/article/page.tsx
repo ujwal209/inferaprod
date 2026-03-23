@@ -206,7 +206,7 @@ function ArticleReader() {
                 {suggestedNews.map((item: any, index: number) => (
                   <Link
                     key={item.url || index}
-                    href={`/news/article?data=${safeStringify(item)}`}
+                    href={`/news-feed/article?data=${safeStringify(item)}`}
                     className="group flex flex-col gap-3 p-4 rounded-[1.5rem] bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 hover:border-blue-300 dark:hover:border-blue-900/50 hover:shadow-md dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.2)] transition-all duration-300"
                   >
                     <div className="flex items-center gap-2 font-google-sans text-[10px] font-bold uppercase tracking-widest text-zinc-500">
