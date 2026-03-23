@@ -26,7 +26,9 @@ import {
   renameStudySession,
   sendStudyMessage,
   getQuizHistory,
-  saveQuizResult
+  saveQuizResult,
+  getStudyProgress,
+  upsertStudyProgress
 } from '@/app/actions/study'
 
 const supabase = createClient()
@@ -35,7 +37,31 @@ const supabase = createClient()
 const temporaryQuizSessionCache: Record<string, { selected: Record<number, number>, submitted: boolean }> = {};
 
 // ==========================================
-// 1. QUIZ WIDGET (STRICTLY NO LOCAL STORAGE FOR STATE)
+// 1. QUIZ MARKDOWN COMPONENTS (LaTeX-enabled, compact, quiz-friendly)
+// ==========================================
+// Defined before QuizWidget to avoid TS resolution crashes over ordering.
+// `p` uses `div` so block KaTeX ($$) does not break React hydration/nesting rules.
+const QuizMarkdownComponents: any = {
+  p: ({ children }: any) => <div className="leading-relaxed break-words inline-block w-full text-zinc-800 dark:text-zinc-200">{children}</div>,
+  strong: ({ children }: any) => <strong className="font-bold text-zinc-900 dark:text-white">{children}</strong>,
+  em: ({ children }: any) => <em className="italic">{children}</em>,
+  code: ({ inline, children, className }: any) => {
+    // If language is math, pass it through so KaTeX handles it instead of code formatting
+    if (className && className.includes('language-math')) {
+       return <span className={className}>{children}</span>;
+    }
+    return inline
+      ? <code className="font-mono text-[0.85em] bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 px-1.5 py-0.5 rounded-md break-words">{children}</code>
+      : <pre className="font-mono text-[0.85em] bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 px-3 py-2 rounded-lg overflow-x-auto my-2 whitespace-pre-wrap break-words">{children}</pre>;
+  },
+  ul: ({ children }: any) => <ul className="list-disc pl-4 space-y-1 my-1.5 text-zinc-800 dark:text-zinc-300">{children}</ul>,
+  ol: ({ children }: any) => <ol className="list-decimal pl-4 space-y-1 my-1.5 text-zinc-800 dark:text-zinc-300">{children}</ol>,
+  li: ({ children }: any) => <li className="leading-relaxed">{children}</li>,
+  blockquote: ({ children }: any) => <blockquote className="border-l-2 border-blue-500 pl-3 my-2 text-zinc-600 dark:text-zinc-400 italic">{children}</blockquote>,
+};
+
+// ==========================================
+// 2. QUIZ WIDGET (STRICTLY NO LOCAL STORAGE FOR STATE)
 // ==========================================
 export const QuizWidget = ({ topic, questions, question, options, correctIndex, explanation, onAnswerSubmitted, sessionId, isHistorical }: any) => {
   const quizList = questions || [{ question, options, correctIndex, explanation }];
@@ -134,7 +160,7 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
                 </span>
               )}
               <div className="text-[15px] sm:text-[16px] font-bold text-zinc-900 dark:text-white leading-relaxed pt-0.5 prose prose-zinc dark:prose-invert max-w-none prose-p:my-0 prose-headings:my-0 w-full overflow-x-auto break-words custom-scrollbar">
-                <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { strict: false }]]} components={getMarkdownComponents()}>
+                <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { strict: false }]]} components={QuizMarkdownComponents}>
                   {q.question}
                 </ReactMarkdown>
               </div>
@@ -175,7 +201,7 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
                       {String.fromCharCode(65 + i)}
                     </div>
                     <div className="text-[13.5px] sm:text-[14.5px] leading-snug prose prose-zinc dark:prose-invert max-w-none prose-p:my-0 w-full overflow-x-auto break-words custom-scrollbar">
-                      <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { strict: false }]]} components={getMarkdownComponents()}>
+                      <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { strict: false }]]} components={QuizMarkdownComponents}>
                         {opt}
                       </ReactMarkdown>
                     </div>
@@ -191,7 +217,7 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
                 <Sparkles size={16} className="text-blue-500 shrink-0 mt-0.5" />
                 <div className="prose prose-zinc dark:prose-invert max-w-none w-full overflow-x-auto break-words custom-scrollbar">
                   <span className="font-bold text-zinc-900 dark:text-white mr-2">Explanation:</span>
-                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { strict: false }]]} components={getMarkdownComponents()}>
+                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { strict: false }]]} components={QuizMarkdownComponents}>
                     {q.explanation}
                   </ReactMarkdown>
                 </div>
@@ -222,13 +248,48 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
 }
 
 // ==========================================
-// 2. PROGRESS WIDGET
+// 2. PROGRESS WIDGET (DB-BACKED)
 // ==========================================
-export const ProgressWidget = ({ topic, masteryPercentage, completedConcepts, nextConcept }: any) => {
-  const radius = 60;
-  const arc = Math.PI * radius; 
-  const percentage = Math.max(0, Math.min(100, masteryPercentage || 0));
-  const offset = arc - (percentage / 100) * arc;
+export const ProgressWidget = ({ topic, masteryPercentage: aiMastery, completedConcepts: aiConcepts, nextConcept, sessionId }: any) => {
+  const [progress, setProgress] = useState<{ mastery_percentage: number; completed_concepts: string[]; current_topic: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!sessionId) {
+      // Fallback: just show AI's data if no sessionId
+      setProgress({ mastery_percentage: 0, completed_concepts: [], current_topic: topic || '—' });
+      setLoading(false);
+      return;
+    }
+
+    const syncProgress = async () => {
+      setLoading(true);
+      try {
+        const existing = await getStudyProgress(sessionId);
+        const prevMastery = existing?.mastery_percentage ?? 0;
+        // Follow AI's mastery progress, fallback to modest increment
+        const safeMastery = aiMastery !== undefined ? Math.max(prevMastery, aiMastery) : Math.min(100, prevMastery + 10);
+        const newConcepts = aiConcepts?.length ? aiConcepts : existing?.completed_concepts ?? [];
+        const saved = await upsertStudyProgress(sessionId, {
+          mastery_percentage: safeMastery,
+          completed_concepts: newConcepts,
+          current_topic: topic || existing?.current_topic || 'Initialization',
+        });
+        setProgress(saved);
+      } catch (e) {
+        console.error('Progress sync error:', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    syncProgress();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, aiMastery]);
+
+  const displayMastery = progress?.mastery_percentage ?? 0;
+  const displayConcepts = progress?.completed_concepts ?? [];
+  const displayTopic = progress?.current_topic || topic || '—';
+  const percentage = Math.max(0, Math.min(100, displayMastery));
 
   return (
     <div className="my-6 p-5 sm:p-6 rounded-[1.5rem] bg-gradient-to-br from-blue-500/5 to-indigo-500/5 border border-blue-200/50 dark:border-blue-900/50 w-full max-w-full sm:max-w-xl font-outfit shadow-xl shadow-blue-500/5 overflow-hidden">
@@ -239,52 +300,63 @@ export const ProgressWidget = ({ topic, masteryPercentage, completedConcepts, ne
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="font-google-sans text-[10px] sm:text-[11px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-widest mb-0.5">Live Tracker</h3>
-            <p className="text-base sm:text-lg font-bold text-zinc-900 dark:text-white leading-tight truncate w-full">{topic}</p>
+            <p className="text-base sm:text-lg font-bold text-zinc-900 dark:text-white leading-tight truncate w-full">{displayTopic}</p>
           </div>
         </div>
       </div>
       
-      <div className="relative flex justify-center items-end h-[70px] sm:h-[80px] mb-6 sm:mb-8">
-        <svg className="w-[140px] h-[70px] sm:w-[160px] sm:h-[80px] drop-shadow-md" viewBox="0 0 160 80">
-          <path d="M 10 70 A 70 70 0 0 1 150 70" fill="none" stroke="currentColor" strokeWidth="12" strokeLinecap="round" className="text-zinc-200 dark:text-zinc-800" />
-          <path d="M 10 70 A 70 70 0 0 1 150 70" fill="none" stroke="url(#progress-gradient)" strokeWidth="12" strokeLinecap="round" strokeDasharray={Math.PI * 70} strokeDashoffset={(Math.PI * 70) - (percentage / 100) * (Math.PI * 70)} className="transition-all duration-1000 ease-out" />
-          <defs>
-            <linearGradient id="progress-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#3b82f6" />
-              <stop offset="100%" stopColor="#6366f1" /> 
-            </linearGradient>
-          </defs>
-        </svg>
-        <div className="absolute bottom-0 flex flex-col items-center">
-          <span className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 leading-none">
-            {percentage}%
-          </span>
-          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-[0.2em] mt-1">Mastery</span>
+      {loading ? (
+        <div className="flex items-center justify-center h-20 gap-2 text-zinc-400">
+          <Loader2 size={18} className="animate-spin" />
+          <span className="text-sm font-medium">Syncing progress...</span>
         </div>
-      </div>
-
-      <div className="space-y-4 sm:space-y-5">
-        <div>
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Mastered Concepts</p>
-          <div className="flex flex-wrap gap-2">
-            {completedConcepts?.length > 0 ? completedConcepts.map((c: string, i: number) => (
-              <span key={i} className="px-2.5 py-1.5 bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[11px] sm:text-[12px] font-bold rounded-lg border border-blue-500/20 flex items-center gap-1.5 shadow-sm break-words">
-                <CheckCircle2 size={13} className="shrink-0" /> {c}
+      ) : (
+        <>
+          <div className="relative flex justify-center items-end h-[70px] sm:h-[80px] mb-6 sm:mb-8">
+            <svg className="w-[140px] h-[70px] sm:w-[160px] sm:h-[80px] drop-shadow-md" viewBox="0 0 160 80">
+              <path d="M 10 70 A 70 70 0 0 1 150 70" fill="none" stroke="currentColor" strokeWidth="12" strokeLinecap="round" className="text-zinc-200 dark:text-zinc-800" />
+              <path d="M 10 70 A 70 70 0 0 1 150 70" fill="none" stroke="url(#progress-gradient)" strokeWidth="12" strokeLinecap="round" strokeDasharray={Math.PI * 70} strokeDashoffset={(Math.PI * 70) - (percentage / 100) * (Math.PI * 70)} className="transition-all duration-1000 ease-out" />
+              <defs>
+                <linearGradient id="progress-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#3b82f6" />
+                  <stop offset="100%" stopColor="#6366f1" /> 
+                </linearGradient>
+              </defs>
+            </svg>
+            <div className="absolute bottom-0 flex flex-col items-center">
+              <span className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 leading-none">
+                {percentage}%
               </span>
-            )) : (
-              <span className="text-zinc-400 text-[12px] italic">Learning in progress...</span>
+              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-[0.2em] mt-1">Mastery</span>
+            </div>
+          </div>
+
+          <div className="space-y-4 sm:space-y-5">
+            <div>
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Mastered Concepts</p>
+              <div className="flex flex-wrap gap-2">
+                {displayConcepts.length > 0 ? displayConcepts.map((c: string, i: number) => (
+                  <span key={i} className="px-2.5 py-1.5 bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[11px] sm:text-[12px] font-bold rounded-lg border border-blue-500/20 flex items-center gap-1.5 shadow-sm break-words">
+                    <CheckCircle2 size={13} className="shrink-0" /> {c}
+                  </span>
+                )) : (
+                  <span className="text-zinc-400 text-[12px] italic">Learning in progress...</span>
+                )}
+              </div>
+            </div>
+            
+            {nextConcept && (
+              <div className="p-3 sm:p-4 bg-white/60 dark:bg-black/20 rounded-xl border border-blue-100 dark:border-blue-900/30 shadow-sm min-w-0">
+                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Up Next</p>
+                <p className="text-[14px] sm:text-[15px] font-semibold text-zinc-900 dark:text-zinc-200 flex items-center gap-2 break-words w-full">
+                  <ArrowRight size={15} className="text-blue-500 shrink-0" /> 
+                  <span className="truncate">{nextConcept}</span>
+                </p>
+              </div>
             )}
           </div>
-        </div>
-        
-        <div className="p-3 sm:p-4 bg-white/60 dark:bg-black/20 rounded-xl border border-blue-100 dark:border-blue-900/30 shadow-sm min-w-0">
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Up Next</p>
-          <p className="text-[14px] sm:text-[15px] font-semibold text-zinc-900 dark:text-zinc-200 flex items-center gap-2 break-words w-full">
-            <ArrowRight size={15} className="text-blue-500 shrink-0" /> 
-            <span className="truncate">{nextConcept}</span>
-          </p>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   )
 }
@@ -361,7 +433,9 @@ const BaseMarkdownComponents = {
   },
 };
 
-export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null, isLast = false, isTyping = false, messageIndex = 0 }: any = {}) => {
+// ==========================================
+
+export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null, isLast = false, isTyping = false, messageIndex = 0, lastUserMessage = '' }: any = {}) => {
   return {
     ...BaseMarkdownComponents,
     code: ({ node, className, inline, children, ...props }: any) => {
@@ -378,23 +452,41 @@ export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null
         let parsed = null;
         try { parsed = JSON.parse(text); } catch (e) {
           try {
-            const fixedStr = text.replace(/\\(?!["\\/bfnrt])/g, '\\\\');
+            const fixedStr = text.replace(/\\(?!["\/bfnrt])/g, '\\\\');
             parsed = JSON.parse(fixedStr);
           } catch (e2) {}
         }
 
-        if (parsed && (parsed.component === 'QuizWidget' || parsed.component === 'ProgressWidget')) {
-          // messageIndex is the index in the messages array - even indices are user messages
-          // Count the number of user messages that have been sent (each pair = 1 exchange)
-          const userMsgsSoFar = Math.ceil((messageIndex + 1) / 2);
-          const allowWidgets = userMsgsSoFar >= 7;
-          
-          if (!allowWidgets) {
-            return null; // Hard ban: never render widgets before 7 user messages
-          }
+        // If this JSON has a `component` key, it's a widget attempt — gate strictly
+        if (parsed && parsed.component) {
+          const lastLower = lastUserMessage.toLowerCase();
 
-          if (parsed.component === 'QuizWidget') return <QuizWidget {...parsed.props} sessionId={sessionId} onAnswerSubmitted={onAnswerSubmitted} isHistorical={!isLast} />;
-          if (parsed.component === 'ProgressWidget') return <ProgressWidget {...parsed.props} />;
+          // Quiz: ONLY if user explicitly asked for a quiz (broad list matching backend)
+          const quizKeywords = [
+            'quiz me', 'test me', 'give me a quiz', 'take a quiz', 'knowledge check',
+            'test my knowledge', 'i want a quiz', 'start a quiz', 'ready to take',
+            'quiz on this', 'quiz on the', "let's do a quiz", "let's take a quiz",
+            'take the quiz', 'do a quiz', 'ready for a quiz', 'ready for the quiz',
+            'quick quiz', 'assess me', 'assessment', 'test myself'
+          ];
+          // Also allow auto-quiz: backend injects QuizWidget after 7 messages even without explicit request
+          const autoQuizPattern = lastLower === '' || true; // always allow if backend decided to send it
+          const userAskedForQuiz = quizKeywords.some(kw => lastLower.includes(kw)) || autoQuizPattern;
+
+          // Progress: ONLY if user explicitly asked to see their progress
+          const progressKeywords = ['show my progress', 'my progress', 'track my progress', 'progress tracker', 'how far', 'how much have i learned', 'mastery'];
+          const userAskedForProgress = progressKeywords.some(kw => lastLower.includes(kw));
+
+          if (parsed.component === 'QuizWidget') {
+            if (!userAskedForQuiz) return null;
+            return <QuizWidget {...parsed.props} sessionId={sessionId} onAnswerSubmitted={onAnswerSubmitted} isHistorical={!isLast} />;
+          }
+          if (parsed.component === 'ProgressWidget') {
+            if (!userAskedForProgress) return null;
+            return <ProgressWidget {...parsed.props} sessionId={sessionId} />;
+          }
+          // Silently suppress ALL unknown component types (QuestionWidget, etc.)
+          return null;
         }
 
         if (!parsed && isTyping) {
@@ -406,6 +498,7 @@ export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null
           );
         }
       }
+
 
       if (!inline && lang) {
         if (['javascript', 'js', 'typescript', 'ts', 'python', 'java', 'cpp', 'c', 'rust', 'go', 'php', 'bash'].includes(lang.toLowerCase().replace('?chameleon', ''))) {
@@ -583,7 +676,7 @@ const TypewriterMessage = ({ content, isNew, forceStop, scrollRef, onComplete, c
 // ==========================================
 // 7. MESSAGE ITEM
 // ==========================================
-const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isLocallyTyping, displayedContent, onRegenerate, onEditSubmit, isNewAssistant, sessionId, onAnswerSubmitted }: any) => {
+const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isLocallyTyping, displayedContent, onRegenerate, onEditSubmit, isNewAssistant, sessionId, onAnswerSubmitted, messages }: any) => {
   const isUser = m.role === 'user';
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(m.content || "");
@@ -594,9 +687,18 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
   const { text: cleanText, widgets, isStreaming } = useMemo(() => extractWidgets(contentToProcess), [contentToProcess]);
   const showLoader = isStreaming && isNewAssistant && isLocallyTyping;
 
+  // Find the preceding user message — used to detect "quiz me" etc.
+  const lastUserMessage = useMemo(() => {
+    if (!messages) return '';
+    for (let i = index - 1; i >= 0; i--) {
+      if (messages[i]?.role === 'user') return messages[i].content || '';
+    }
+    return '';
+  }, [messages, index]);
+
   const memoizedComponents = useMemo(() => {
-    return getMarkdownComponents({ sessionId, onAnswerSubmitted, isLast, isTyping: isTypingGlobal, messageIndex: index });
-  }, [sessionId, onAnswerSubmitted, isLast, isTypingGlobal, index]);
+    return getMarkdownComponents({ sessionId, onAnswerSubmitted, isLast, isTyping: isTypingGlobal, messageIndex: index, lastUserMessage });
+  }, [sessionId, onAnswerSubmitted, isLast, isTypingGlobal, index, lastUserMessage]);
 
   if (isEditing) {
     return (
@@ -1192,12 +1294,12 @@ export default function StudyChatPage() {
                       return (
                         <TypewriterMessage key={`tw-${i}`} content={m.content} isNew={true} forceStop={forceStop} onComplete={() => setIsTyping(false)} scrollRef={scrollRef}>
                           {(displayed: any, isLocalTyping: boolean) => (
-                            <MessageItem m={m} index={i} isLast={i === messages.length - 1} loading={loading} isTypingGlobal={isTyping} onRegenerate={handleRegenerate} onEditSubmit={handleEditSubmit} isNewAssistant={true} forceStop={forceStop} onTypingComplete={() => setIsTyping(false)} displayedContent={displayed} isLocallyTyping={isLocalTyping} sessionId={sessionId} onAnswerSubmitted={handleChatSubmit} />
+                            <MessageItem m={m} index={i} isLast={i === messages.length - 1} loading={loading} isTypingGlobal={isTyping} onRegenerate={handleRegenerate} onEditSubmit={handleEditSubmit} isNewAssistant={true} forceStop={forceStop} onTypingComplete={() => setIsTyping(false)} displayedContent={displayed} isLocallyTyping={isLocalTyping} sessionId={sessionId} onAnswerSubmitted={handleChatSubmit} messages={messages} />
                           )}
                         </TypewriterMessage>
                       );
                     }
-                    return <MessageItem key={`msg-${i}`} m={m} index={i} isLast={m.role === 'assistant' && i === messages.length - 1} loading={loading} isTypingGlobal={isTyping} onRegenerate={handleRegenerate} onEditSubmit={handleEditSubmit} isNewAssistant={false} sessionId={sessionId} onAnswerSubmitted={handleChatSubmit} />;
+                    return <MessageItem key={`msg-${i}`} m={m} index={i} isLast={m.role === 'assistant' && i === messages.length - 1} loading={loading} isTypingGlobal={isTyping} onRegenerate={handleRegenerate} onEditSubmit={handleEditSubmit} isNewAssistant={false} sessionId={sessionId} onAnswerSubmitted={handleChatSubmit} messages={messages} />;
                   })}
 
                   {loading && !isTyping && (

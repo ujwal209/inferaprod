@@ -146,6 +146,59 @@ export async function saveQuizResult(data: {
   return { success: true };
 }
 
+// ✅ Study Progress: DB-backed progress tracking per session
+export async function getStudyProgress(sessionId: string) {
+  const { data } = await supabaseAdmin
+    .from('study_progress')
+    .select('*')
+    .eq('session_id', sessionId)
+    .single();
+  return data || null;
+}
+
+export async function upsertStudyProgress(sessionId: string, update: {
+  mastery_percentage?: number;
+  completed_concepts?: string[];
+  current_topic?: string;
+}) {
+  const existing = await getStudyProgress(sessionId);
+  
+  if (existing) {
+    // Cap mastery at 100, ensure it never drops
+    const newMastery = Math.min(100, Math.max(existing.mastery_percentage, update.mastery_percentage ?? existing.mastery_percentage));
+    const { error } = await supabaseAdmin
+      .from('study_progress')
+      .update({
+        mastery_percentage: newMastery,
+        completed_concepts: update.completed_concepts ?? existing.completed_concepts,
+        current_topic: update.current_topic ?? existing.current_topic,
+        updated_at: new Date().toISOString()
+      })
+      .eq('session_id', sessionId);
+      
+    if (error) {
+      console.error("UPSERT ERROR (UPDATE):", error);
+      throw error;
+    }
+  } else {
+    const { error } = await supabaseAdmin
+      .from('study_progress')
+      .insert({
+        session_id: sessionId,
+        mastery_percentage: Math.min(100, update.mastery_percentage ?? 0),
+        completed_concepts: update.completed_concepts ?? [],
+        current_topic: update.current_topic ?? 'Initialization'
+      });
+      
+    if (error) {
+      console.error("UPSERT ERROR (INSERT):", error);
+      throw error;
+    }
+  }
+  
+  return getStudyProgress(sessionId);
+}
+
 // ✅ UPGRADED: Using supabaseAdmin for reliable DB fetching
 export async function getQuizHistory() {
   const supabaseAuth = await createServerClient();
