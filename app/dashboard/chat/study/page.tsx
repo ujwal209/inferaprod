@@ -312,8 +312,8 @@ export const ProgressWidget = ({ topic, masteryPercentage: aiMastery, completedC
         </div>
       ) : (
         <>
-          <div className="relative flex justify-center items-end h-[70px] sm:h-[80px] mb-6 sm:mb-8">
-            <svg className="w-[140px] h-[70px] sm:w-[160px] sm:h-[80px] drop-shadow-md" viewBox="0 0 160 80">
+          <div className="relative flex justify-center items-end w-full max-w-[160px] mx-auto aspect-[2/1] mb-6 sm:mb-8">
+            <svg className="w-full h-full drop-shadow-md pb-2" viewBox="0 0 160 80">
               <path d="M 10 70 A 70 70 0 0 1 150 70" fill="none" stroke="currentColor" strokeWidth="12" strokeLinecap="round" className="text-zinc-200 dark:text-zinc-800" />
               <path d="M 10 70 A 70 70 0 0 1 150 70" fill="none" stroke="url(#progress-gradient)" strokeWidth="12" strokeLinecap="round" strokeDasharray={Math.PI * 70} strokeDashoffset={(Math.PI * 70) - (percentage / 100) * (Math.PI * 70)} className="transition-all duration-1000 ease-out" />
               <defs>
@@ -323,11 +323,11 @@ export const ProgressWidget = ({ topic, masteryPercentage: aiMastery, completedC
                 </linearGradient>
               </defs>
             </svg>
-            <div className="absolute bottom-0 flex flex-col items-center">
+            <div className="absolute inset-x-0 bottom-0 flex flex-col items-center justify-end">
               <span className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 leading-none">
                 {percentage}%
               </span>
-              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-[0.2em] mt-1">Mastery</span>
+              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-[0.2em] mt-1 -mb-1">Mastery</span>
             </div>
           </div>
 
