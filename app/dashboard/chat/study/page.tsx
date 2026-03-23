@@ -384,11 +384,13 @@ export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null
         }
 
         if (parsed && (parsed.component === 'QuizWidget' || parsed.component === 'ProgressWidget')) {
-          const aiMessageNumber = Math.floor(messageIndex / 2) + 1;
-          const isMultipleOfSeven = messageIndex > 0 && (aiMessageNumber % 7 === 0);
+          // messageIndex is the index in the messages array - even indices are user messages
+          // Count the number of user messages that have been sent (each pair = 1 exchange)
+          const userMsgsSoFar = Math.ceil((messageIndex + 1) / 2);
+          const allowWidgets = userMsgsSoFar >= 7;
           
-          if (!isMultipleOfSeven) {
-            return null; // Hard ban the widget from rendering on the frontend!
+          if (!allowWidgets) {
+            return null; // Hard ban: never render widgets before 7 user messages
           }
 
           if (parsed.component === 'QuizWidget') return <QuizWidget {...parsed.props} sessionId={sessionId} onAnswerSubmitted={onAnswerSubmitted} isHistorical={!isLast} />;
