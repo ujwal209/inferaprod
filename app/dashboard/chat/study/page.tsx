@@ -1210,17 +1210,20 @@ export default function StudyChatPage() {
         .katex-display {
           overflow-x: auto !important;
           overflow-y: hidden !important;
-          padding-bottom: 0.5rem !important;
+          padding: 0.5rem 0 0.5rem 1rem !important; /* Left indent and vertical breathing room inside */
+          margin: 1.75em 0 !important; /* Proper block spacing from surrounding text */
           scrollbar-width: thin !important;
           max-width: 100% !important;
           display: block !important;
+          text-align: left !important;
         }
         .katex {
-          white-space: normal !important;
-          word-wrap: break-word !important;
-          overflow-wrap: anywhere !important;
-          max-width: 100% !important;
+          font-size: 1.05em !important;
           display: inline-block !important;
+        }
+        .katex-display > .katex {
+          white-space: nowrap !important;
+          max-width: none !important;
         }
         .katex-display::-webkit-scrollbar {
           height: 6px;
