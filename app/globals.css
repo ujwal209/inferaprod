@@ -186,3 +186,24 @@
     padding-bottom: 1rem;
   }
 }
+
+/* KaTeX Spacing & Visibility Overrides */
+.katex-display {
+  margin: 1.75em 0 !important;   /* Increase vertical spacing from text */
+  padding: 0.5em 0;              /* Add some breathing room inside */
+  overflow-x: auto;              /* Allow large matrices to scroll horizontally */
+  overflow-y: hidden;
+  text-align: center;
+}
+
+/* Make both inline and block math slightly more legible */
+.katex {
+  font-size: 1.08em !important; 
+}
+
+/* Ensure wide matrices or derivations inside KaTeX don't overlap containers */
+.katex-display > .katex {
+  display: inline-block;
+  white-space: nowrap;
+  max-width: none;
+}
