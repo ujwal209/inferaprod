@@ -6,7 +6,7 @@ import Image from 'next/image'
 import { useSearchParams } from 'next/navigation'
 import { getEducationNews } from '@/app/actions/news-feed'
 import { DashboardNavbar } from '@/components/dashboard/dashboard-navbar'
-import { Search, Clock, TrendingUp, Zap, ArrowRight, ImageOff } from 'lucide-react'
+import { Search, Clock, TrendingUp, Zap, ArrowRight } from 'lucide-react'
 
 // --- UTILS ---
 function formatDate(dateString: string) {
@@ -24,7 +24,6 @@ function safeStringify(article: any) {
     description: article.description ? article.description.substring(0, 250) : '',
     content: article.content ? article.content.substring(0, 800) + '... [Content truncated for preview]' : '',
     url: article.url || '#',
-    urlToImage: article.urlToImage || null,
     publishedAt: article.publishedAt || new Date().toISOString(),
     source: article.source || { name: 'News' },
     author: article.author || null
@@ -168,55 +167,39 @@ function NewsContent() {
             <div className="flex flex-col gap-12 lg:gap-16">
               
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
+                
+                {/* FEATURED ARTICLE */}
                 <div className="lg:col-span-8 group">
                   <Link
                     href={`/news-feed/article?data=${safeStringify(featuredArticle)}`}
-                    className="relative flex flex-col justify-between min-h-[420px] rounded-[2rem] overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0c0c0e] hover:border-blue-300 dark:hover:border-blue-900/50 shadow-[0_8px_30px_rgba(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.2)] hover:shadow-[0_20px_40px_rgba(37,99,235,0.08)] dark:hover:shadow-[0_20px_40px_rgba(37,99,235,0.15)] transition-all duration-300 hover:-translate-y-1"
+                    className="relative flex flex-col p-8 sm:p-12 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0c0c0e] hover:border-blue-300 dark:hover:border-blue-900/50 shadow-[0_8px_30px_rgba(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.2)] hover:shadow-[0_20px_40px_rgba(37,99,235,0.08)] dark:hover:shadow-[0_20px_40px_rgba(37,99,235,0.15)] transition-all duration-300 hover:-translate-y-1"
                   >
-                    {/* HERO IMAGE CONTAINER */}
-                    {featuredArticle.urlToImage ? (
-                      <div className="w-full h-64 sm:h-80 relative overflow-hidden bg-zinc-100 dark:bg-zinc-900">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img 
-                          src={featuredArticle.urlToImage} 
-                          alt={featuredArticle.title} 
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-in-out" 
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-80" />
+                    <div className="flex flex-col flex-1">
+                      <div className="flex items-center gap-3 font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-6">
+                        <span className="text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-md border border-blue-100 dark:border-blue-500/20">
+                          {featuredArticle.source?.name || 'Top Story'}
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <Clock size={14} /> {formatDate(featuredArticle.publishedAt)}
+                        </span>
                       </div>
-                    ) : (
-                      <div className="w-full h-64 sm:h-80 bg-zinc-100 dark:bg-[#111113] flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-600">
-                         <ImageOff size={48} strokeWidth={1} />
-                      </div>
-                    )}
+                      
+                      <h2 className="font-google-sans text-3xl sm:text-4xl font-extrabold text-zinc-900 dark:text-white tracking-tight leading-[1.2] group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors mb-6">
+                        {featuredArticle.title}
+                      </h2>
+                      
+                      <p className="text-[17px] text-zinc-600 dark:text-zinc-400 font-medium leading-relaxed">
+                        {featuredArticle.description}
+                      </p>
 
-                    <div className="relative z-10 p-8 sm:p-12 -mt-16 sm:-mt-20">
-                      <div className="bg-white dark:bg-[#0c0c0e] p-6 sm:p-8 rounded-[1.5rem] shadow-xl border border-zinc-100 dark:border-zinc-800">
-                        <div className="flex items-center gap-3 font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-6">
-                          <span className="text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-md border border-blue-100 dark:border-blue-500/20">
-                            {featuredArticle.source?.name || 'Top Story'}
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <Clock size={14} /> {formatDate(featuredArticle.publishedAt)}
-                          </span>
-                        </div>
-                        
-                        <h2 className="font-google-sans text-3xl sm:text-4xl font-extrabold text-zinc-900 dark:text-white tracking-tight leading-[1.15] group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors mb-4">
-                          {featuredArticle.title}
-                        </h2>
-                        
-                        <p className="text-[17px] text-zinc-600 dark:text-zinc-400 font-medium leading-relaxed line-clamp-3">
-                          {featuredArticle.description}
-                        </p>
-
-                        <div className="mt-8 flex items-center gap-2 font-google-sans font-bold text-[13px] uppercase text-blue-600 dark:text-blue-400 tracking-widest transition-opacity">
-                          Read Full Article <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                        </div>
+                      <div className="mt-10 flex items-center gap-2 font-google-sans font-bold text-[13px] uppercase text-blue-600 dark:text-blue-400 tracking-widest transition-opacity">
+                        Read Full Article <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
                       </div>
                     </div>
                   </Link>
                 </div>
 
+                {/* SIDEBAR ARTICLES */}
                 <div className="lg:col-span-4 flex flex-col gap-6">
                   <div className="flex items-center gap-3 border-b border-zinc-200 dark:border-zinc-800/80 pb-4">
                     <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 flex items-center justify-center">
@@ -232,7 +215,7 @@ function NewsContent() {
                       <Link
                         key={article.url || index}
                         href={`/news-feed/article?data=${safeStringify(article)}`}
-                        className="group flex flex-col items-start gap-2 p-4 -mx-4 rounded-2xl hover:bg-white dark:hover:bg-[#0c0c0e] border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 hover:shadow-sm transition-all duration-300"
+                        className="group flex flex-col items-start gap-3 p-5 rounded-[1.5rem] hover:bg-white dark:hover:bg-[#0c0c0e] border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800 hover:shadow-sm transition-all duration-300"
                       >
                         <div className="flex items-center gap-2 font-google-sans text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                           <span className="text-blue-600 dark:text-blue-400 truncate max-w-[150px]">
@@ -241,7 +224,7 @@ function NewsContent() {
                           <span className="text-zinc-300 dark:text-zinc-700">•</span>
                           <span>{formatDate(article.publishedAt)}</span>
                         </div>
-                        <h4 className="font-google-sans text-[16px] font-bold text-zinc-900 dark:text-zinc-100 leading-snug line-clamp-3 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                        <h4 className="font-google-sans text-[16px] font-bold text-zinc-900 dark:text-zinc-100 leading-snug group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                           {article.title}
                         </h4>
                       </Link>
@@ -250,6 +233,7 @@ function NewsContent() {
                 </div>
               </div>
 
+              {/* GRID ARTICLES */}
               {gridArticles.length > 0 && (
                 <div className="pt-12 lg:pt-16 border-t border-zinc-200 dark:border-zinc-800/60">
                   <div className="flex items-center gap-3 mb-10">
@@ -266,37 +250,25 @@ function NewsContent() {
                       <Link
                         key={article.url || index}
                         href={`/news-feed/article?data=${safeStringify(article)}`}
-                        className="group flex flex-col justify-between rounded-[2rem] bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 transition-all duration-300 hover:border-blue-300 dark:hover:border-blue-900/50 hover:shadow-[0_15px_40px_rgba(0,0,0,0.06)] dark:hover:shadow-[0_15px_40px_rgba(0,0,0,0.3)] hover:-translate-y-1.5 overflow-hidden"
+                        className="group flex flex-col justify-between rounded-[2rem] bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 transition-all duration-300 hover:border-blue-300 dark:hover:border-blue-900/50 hover:shadow-[0_15px_40px_rgba(0,0,0,0.06)] dark:hover:shadow-[0_15px_40px_rgba(0,0,0,0.3)] hover:-translate-y-1.5 p-8"
                       >
-                        {/* GRID IMAGE CONTAINER */}
-                        {article.urlToImage ? (
-                          <div className="w-full h-48 overflow-hidden bg-zinc-100 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
-                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={article.urlToImage} alt={article.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                          </div>
-                        ) : (
-                          <div className="w-full h-48 bg-zinc-50 dark:bg-[#111113] border-b border-zinc-200 dark:border-zinc-800 flex flex-col items-center justify-center text-zinc-300 dark:text-zinc-700">
-                             <ImageOff size={32} strokeWidth={1.5} />
-                          </div>
-                        )}
-
-                        <div className="flex flex-col p-8 flex-1">
-                          <div className="flex items-center gap-2 font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 mb-4">
+                        <div className="flex flex-col flex-1">
+                          <div className="flex items-center gap-2 font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 mb-5">
                             <span className="text-blue-600 dark:text-blue-400">{article.source?.name || 'Research'}</span>
                             <span className="text-zinc-300 dark:text-zinc-700">•</span>
                             <span>{formatDate(article.publishedAt)}</span>
                           </div>
                           
-                          <h4 className="font-google-sans text-[20px] font-bold text-zinc-900 dark:text-white leading-[1.3] tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors line-clamp-3 mb-3">
+                          <h4 className="font-google-sans text-[20px] font-bold text-zinc-900 dark:text-white leading-[1.35] tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors mb-4">
                             {article.title}
                           </h4>
                           
-                          <p className="text-zinc-500 dark:text-zinc-400 text-[15px] font-medium leading-relaxed line-clamp-3">
+                          <p className="text-zinc-500 dark:text-zinc-400 text-[15px] font-medium leading-relaxed line-clamp-4">
                             {article.description}
                           </p>
                         </div>
                         
-                        <div className="px-8 pb-8 mt-auto flex items-center justify-between">
+                        <div className="mt-8 pt-6 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between">
                           <span className="font-google-sans text-[11px] font-bold text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 uppercase tracking-[0.2em] transition-colors">
                             Read More
                           </span>

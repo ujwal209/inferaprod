@@ -14,7 +14,7 @@ import {
   Trash2, Loader2, Check, PenLine, Square,
   GraduationCap, ArrowRight, Target, Sparkles,
   History, Trophy, Calendar, XCircle, CheckCircle2, BarChart, CheckSquare, Square as SquareIcon,
-  BookOpen, Copy, Maximize2, Download, Search as SearchIcon, ThumbsUp, ThumbsDown
+  BookOpen, Copy, Maximize2, Download, ThumbsUp, ThumbsDown
 } from 'lucide-react'
 
 import { createClient } from '@/utils/supabase/client'
@@ -37,16 +37,29 @@ const supabase = createClient()
 const temporaryQuizSessionCache: Record<string, { selected: Record<number, number>, submitted: boolean }> = {};
 
 // ==========================================
-// 1. QUIZ MARKDOWN COMPONENTS (LaTeX-enabled, compact, quiz-friendly)
+// 1. LATEX PRE-PROCESSOR (FIXES THE MATH BUG)
 // ==========================================
-// Defined before QuizWidget to avoid TS resolution crashes over ordering.
-// `p` uses `div` so block KaTeX ($$) does not break React hydration/nesting rules.
+export const formatLatex = (text: string) => {
+  if (!text) return text;
+  return text
+    // Replace escaped \[ \] with $$ $$
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_, match) => `$$${match}$$`)
+    // Replace escaped \( \) with $ $
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_, match) => `$${match}$`)
+    // Catch LLM lazy brackets [ \begin{...} ... \end{...} ]
+    .replace(/(?:^|\n)\[\s*(\\begin\{[\s\S]*?\\end\{[^}]+\})\s*\](?:$|\n)/g, (_, match) => `\n$$${match}$$\n`)
+    // Catch LLM lazy brackets [ \mathbf... ] and other math commands
+    .replace(/(?:^|\n)\[\s*(\\(?:mathbf|frac|sum|int|mu|sigma|alpha|beta|text|left)[\s\S]*?)\s*\](?:$|\n)/g, (_, match) => `\n$$${match}$$\n`);
+};
+
+// ==========================================
+// 2. QUIZ MARKDOWN COMPONENTS
+// ==========================================
 const QuizMarkdownComponents: any = {
   p: ({ children }: any) => <div className="leading-relaxed break-words inline-block w-full text-zinc-800 dark:text-zinc-200">{children}</div>,
   strong: ({ children }: any) => <strong className="font-bold text-zinc-900 dark:text-white">{children}</strong>,
   em: ({ children }: any) => <em className="italic">{children}</em>,
   code: ({ inline, children, className }: any) => {
-    // If language is math, pass it through so KaTeX handles it instead of code formatting
     if (className && className.includes('language-math')) {
        return <span className={className}>{children}</span>;
     }
@@ -61,7 +74,7 @@ const QuizMarkdownComponents: any = {
 };
 
 // ==========================================
-// 2. QUIZ WIDGET (STRICTLY NO LOCAL STORAGE FOR STATE)
+// 3. QUIZ WIDGET
 // ==========================================
 export const QuizWidget = ({ topic, questions, question, options, correctIndex, explanation, onAnswerSubmitted, sessionId, isHistorical }: any) => {
   const quizList = questions || [{ question, options, correctIndex, explanation }];
@@ -71,8 +84,6 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
   const [submitted, setSubmitted] = useState(() => temporaryQuizSessionCache[uniqueQuizKey]?.submitted || false);
   const [saving, setSaving] = useState(false);
 
-  // 🚀 ONLY lock the quiz if it's an OLD message loaded from the Supabase Database AND isn't in current session cache.
-  // NO LOCAL STORAGE CACHING.
   useEffect(() => {
     if (isHistorical && !submitted && !temporaryQuizSessionCache[uniqueQuizKey]?.submitted) {
       setSelectedMap(quizList.reduce((acc: any, _: any, i: number) => ({...acc, [i]: quizList[i].correctIndex}), {}));
@@ -86,7 +97,6 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
     if (!isAllAnswered || submitted || isHistorical) return;
     setSaving(true);
     
-    // Save to cache before remount happens
     temporaryQuizSessionCache[uniqueQuizKey] = { selected: selectedMap, submitted: true };
     setSubmitted(true);
 
@@ -161,7 +171,7 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
               )}
               <div className="text-[15px] sm:text-[16px] font-bold text-zinc-900 dark:text-white leading-relaxed pt-0.5 prose prose-zinc dark:prose-invert max-w-none prose-p:my-0 prose-headings:my-0 w-full overflow-x-auto break-words custom-scrollbar">
                 <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { strict: false }]]} components={QuizMarkdownComponents}>
-                  {q.question}
+                  {formatLatex(q.question)}
                 </ReactMarkdown>
               </div>
             </div>
@@ -202,7 +212,7 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
                     </div>
                     <div className="text-[13.5px] sm:text-[14.5px] leading-snug prose prose-zinc dark:prose-invert max-w-none prose-p:my-0 w-full overflow-x-auto break-words custom-scrollbar">
                       <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { strict: false }]]} components={QuizMarkdownComponents}>
-                        {opt}
+                        {formatLatex(opt)}
                       </ReactMarkdown>
                     </div>
                     {submitted && i === q.correctIndex && <CheckCircle2 size={16} className="text-emerald-500 ml-auto shrink-0" />}
@@ -218,7 +228,7 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
                 <div className="prose prose-zinc dark:prose-invert max-w-none w-full overflow-x-auto break-words custom-scrollbar">
                   <span className="font-bold text-zinc-900 dark:text-white mr-2">Explanation:</span>
                   <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { strict: false }]]} components={QuizMarkdownComponents}>
-                    {q.explanation}
+                    {formatLatex(q.explanation)}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -248,7 +258,7 @@ export const QuizWidget = ({ topic, questions, question, options, correctIndex, 
 }
 
 // ==========================================
-// 2. PROGRESS WIDGET (DB-BACKED)
+// 4. PROGRESS WIDGET
 // ==========================================
 export const ProgressWidget = ({ topic, masteryPercentage: aiMastery, completedConcepts: aiConcepts, nextConcept, sessionId }: any) => {
   const [progress, setProgress] = useState<{ mastery_percentage: number; completed_concepts: string[]; current_topic: string } | null>(null);
@@ -256,7 +266,6 @@ export const ProgressWidget = ({ topic, masteryPercentage: aiMastery, completedC
 
   useEffect(() => {
     if (!sessionId) {
-      // Fallback: just show AI's data if no sessionId
       setProgress({ mastery_percentage: 0, completed_concepts: [], current_topic: topic || '—' });
       setLoading(false);
       return;
@@ -267,7 +276,6 @@ export const ProgressWidget = ({ topic, masteryPercentage: aiMastery, completedC
       try {
         const existing = await getStudyProgress(sessionId);
         const prevMastery = existing?.mastery_percentage ?? 0;
-        // Follow AI's mastery progress, fallback to modest increment
         const safeMastery = aiMastery !== undefined ? Math.max(prevMastery, aiMastery) : Math.min(100, prevMastery + 10);
         const newConcepts = aiConcepts?.length ? aiConcepts : existing?.completed_concepts ?? [];
         const saved = await upsertStudyProgress(sessionId, {
@@ -362,15 +370,12 @@ export const ProgressWidget = ({ topic, masteryPercentage: aiMastery, completedC
 }
 
 // ==========================================
-// 3. UTILITIES & JSON PARSER
+// 5. UTILITIES
 // ==========================================
 export const extractWidgets = (rawText: string) => {
   return { text: rawText || '', widgets: [], isStreaming: false };
 };
 
-// ==========================================
-// COPY BUTTON UTILITY
-// ==========================================
 export const CopyButton = ({ text, className = "" }: { text: string, className?: string }) => {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
@@ -385,16 +390,106 @@ export const CopyButton = ({ text, className = "" }: { text: string, className?:
   );
 };
 
-// ==========================================
-// 4. THE MARKDOWN COMPONENT
-// ==========================================
-const extractTextFromNode = (node: any): string => {
-  if (typeof node === 'string' || typeof node === 'number') return String(node);
-  if (Array.isArray(node)) return node.map(extractTextFromNode).join('');
-  if (node && node.props && node.props.children) return extractTextFromNode(node.props.children);
-  return '';
+export const CodeCopyButton = ({ text }: { text: string }) => {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy code:', err);
+    }
+  };
+  return (
+    <button 
+      onClick={handleCopy}
+      className="flex items-center gap-1.5 px-2 py-1 text-zinc-400 hover:text-white transition-all rounded-md hover:bg-zinc-700"
+    >
+      {copied ? (
+        <>
+          <CheckCircle2 size={12} className="text-emerald-400" />
+          <span className="text-[10px] font-google-sans font-bold uppercase tracking-wider text-emerald-400">Copied</span>
+        </>
+      ) : (
+        <>
+          <Copy size={12} />
+          <span className="text-[10px] font-google-sans font-bold uppercase tracking-wider">Copy</span>
+        </>
+      )}
+    </button>
+  );
 };
 
+const InteractiveImage = ({ src, alt }: { src?: string; alt?: string }) => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!src || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const response = await fetch(src);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = alt ? `${alt.replace(/\s+/g, '-').toLowerCase()}.png` : 'infera-generated-image.png';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      window.open(src, '_blank'); 
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  return (
+    <>
+      <div 
+        onClick={() => setIsModalOpen(true)}
+        className="relative group my-6 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 cursor-zoom-in shadow-sm transition-all hover:shadow-md max-w-lg"
+      >
+        <img src={src} alt={alt || 'Generated output'} className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-[1.02]" loading="lazy" />
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300 flex items-center justify-center">
+          <div className="opacity-0 group-hover:opacity-100 bg-white/90 dark:bg-black/70 backdrop-blur-sm text-zinc-900 dark:text-zinc-100 px-4 py-2 rounded-xl flex items-center gap-2 font-google-sans font-bold text-[13px] shadow-xl transition-all duration-300 translate-y-2 group-hover:translate-y-0">
+            <Maximize2 size={16} />
+            <span>Expand Image</span>
+          </div>
+        </div>
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-8 bg-black/80 backdrop-blur-md animate-in fade-in duration-200" onClick={() => setIsModalOpen(false)}>
+          <div className="relative w-full max-w-5xl max-h-full flex flex-col items-center animate-in zoom-in-95 duration-300" onClick={(e) => e.stopPropagation()}>
+            <div className="absolute -top-12 right-0 left-0 flex justify-between items-center px-2">
+              <span className="text-white/70 font-google-sans text-[13px] font-semibold truncate max-w-[200px] sm:max-w-md">
+                {alt || 'Generated Image'}
+              </span>
+              <button onClick={() => setIsModalOpen(false)} className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-md transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <img src={src} alt={alt || 'Expanded output'} className="w-auto h-auto max-w-full max-h-[80vh] rounded-lg shadow-2xl object-contain bg-zinc-900/50" />
+            <div className="absolute -bottom-16 flex justify-center w-full">
+              <button onClick={handleDownload} disabled={isDownloading} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl font-google-sans font-bold text-[14px] shadow-lg shadow-blue-500/25 transition-all active:scale-95 disabled:opacity-70 disabled:active:scale-100">
+                {isDownloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                <span>{isDownloading ? 'Downloading...' : 'Download Image'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// ==========================================
+// 6. BASE MARKDOWN COMPONENTS
+// ==========================================
 const BaseMarkdownComponents = {
   table: ({ children }: any) => (
     <div className="my-5 w-full max-w-full overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0c0c0e] shadow-sm custom-scrollbar">
@@ -431,9 +526,9 @@ const BaseMarkdownComponents = {
       </div>
     )
   },
+  
+  img: ({ src, alt }: any) => <InteractiveImage src={src} alt={alt} />
 };
-
-// ==========================================
 
 export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null, isLast = false, isTyping = false, messageIndex = 0, lastUserMessage = '' }: any = {}) => {
   return {
@@ -457,11 +552,8 @@ export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null
           } catch (e2) {}
         }
 
-        // If this JSON has a `component` key, it's a widget attempt — gate strictly
         if (parsed && parsed.component) {
           const lastLower = lastUserMessage.toLowerCase();
-
-          // Quiz: ONLY if user explicitly asked for a quiz (broad list matching backend)
           const quizKeywords = [
             'quiz me', 'test me', 'give me a quiz', 'take a quiz', 'knowledge check',
             'test my knowledge', 'i want a quiz', 'start a quiz', 'ready to take',
@@ -469,11 +561,9 @@ export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null
             'take the quiz', 'do a quiz', 'ready for a quiz', 'ready for the quiz',
             'quick quiz', 'assess me', 'assessment', 'test myself'
           ];
-          // Also allow auto-quiz: backend injects QuizWidget after 7 messages even without explicit request
-          const autoQuizPattern = lastLower === '' || true; // always allow if backend decided to send it
+          const autoQuizPattern = lastLower === '' || true; 
           const userAskedForQuiz = quizKeywords.some(kw => lastLower.includes(kw)) || autoQuizPattern;
 
-          // Progress: ONLY if user explicitly asked to see their progress
           const progressKeywords = ['show my progress', 'my progress', 'track my progress', 'progress tracker', 'how far', 'how much have i learned', 'mastery'];
           const userAskedForProgress = progressKeywords.some(kw => lastLower.includes(kw));
 
@@ -485,7 +575,6 @@ export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null
             if (!userAskedForProgress) return null;
             return <ProgressWidget {...parsed.props} sessionId={sessionId} />;
           }
-          // Silently suppress ALL unknown component types (QuestionWidget, etc.)
           return null;
         }
 
@@ -498,7 +587,6 @@ export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null
           );
         }
       }
-
 
       if (!inline && lang) {
         if (['javascript', 'js', 'typescript', 'ts', 'python', 'java', 'cpp', 'c', 'rust', 'go', 'php', 'bash'].includes(lang.toLowerCase().replace('?chameleon', ''))) {
@@ -529,7 +617,7 @@ export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null
 }
 
 // ==========================================
-// 5. QUIZ HISTORY MODAL
+// 7. QUIZ HISTORY MODAL
 // ==========================================
 const QuizHistoryModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
   const [history, setHistory] = useState<any[]>([]);
@@ -615,7 +703,7 @@ const QuizHistoryModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () =>
 };
 
 // ==========================================
-// 6. SMOOTH TYPEWRITER
+// 8. SMOOTH TYPEWRITER
 // ==========================================
 const useTypewriter = (text: string, enabled: boolean, forceStop: boolean, onComplete?: () => void) => {
   const [displayedText, setDisplayedText] = useState('');
@@ -640,7 +728,6 @@ const useTypewriter = (text: string, enabled: boolean, forceStop: boolean, onCom
     let i = 0;
     const fullText = text || '';
     
-    // Calculate a dynamic chunk size so it finishes very quickly (max ~0.8s), but still looks smooth
     const chunkSize = Math.max(5, Math.floor(fullText.length / 50)); 
 
     const interval = setInterval(() => {
@@ -674,7 +761,7 @@ const TypewriterMessage = ({ content, isNew, forceStop, scrollRef, onComplete, c
 };
 
 // ==========================================
-// 7. MESSAGE ITEM
+// 9. MESSAGE ITEM
 // ==========================================
 const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isLocallyTyping, displayedContent, onRegenerate, onEditSubmit, isNewAssistant, sessionId, onAnswerSubmitted, messages }: any) => {
   const isUser = m.role === 'user';
@@ -684,10 +771,11 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
   useEffect(() => { setEditValue(m.content || ""); }, [m.content]);
 
   const contentToProcess = isNewAssistant && displayedContent !== undefined ? displayedContent : (m.content || "");
-  const { text: cleanText, widgets, isStreaming } = useMemo(() => extractWidgets(contentToProcess), [contentToProcess]);
-  const showLoader = isStreaming && isNewAssistant && isLocallyTyping;
-
-  // Find the preceding user message — used to detect "quiz me" etc.
+  
+  // FIX LATEX AND EXTRACT WIDGETS
+  const { text: cleanTextRaw, widgets, isStreaming } = useMemo(() => extractWidgets(contentToProcess), [contentToProcess]);
+  const cleanText = useMemo(() => formatLatex(cleanTextRaw), [cleanTextRaw]);
+  
   const lastUserMessage = useMemo(() => {
     if (!messages) return '';
     for (let i = index - 1; i >= 0; i--) {
@@ -727,7 +815,7 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
           ) : (
             <>
               {cleanText && (
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]} components={memoizedComponents}>
+                <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]} components={memoizedComponents}>
                   {cleanText}
                 </ReactMarkdown>
               )}
@@ -773,7 +861,7 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
 MessageItem.displayName = 'MessageItem';
 
 // ==========================================
-// 8. PROMPT BAR
+// 10. PROMPT BAR
 // ==========================================
 const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryModal, currentProgress = 0 }: any) => {
   const [chatInput, setChatInput] = useState('');
@@ -865,7 +953,7 @@ const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryMo
 };
 
 // ==========================================
-// 9. INIT FORM
+// 11. INIT FORM
 // ==========================================
 const SUGGESTIONS = [
   { subject: 'Linear Algebra', level: 'Undergrad', q: 'Explain Eigenvalues intuitively.' },
@@ -925,7 +1013,7 @@ const InitForm = ({ onSubmit, loading }: { onSubmit: (e: any) => void, loading: 
 }
 
 // ==========================================
-// 10. SIDEBAR
+// 12. SIDEBAR
 // ==========================================
 const HistorySidebar = React.memo(({ sessions, sessionId, filter, setFilter, loadSession, setEditingId, editingId, editTitle, setEditTitle, saveRename, handleDelete, createNewSession }: any) => {
   const [isSelectMode, setIsSelectMode] = useState(false);
@@ -1020,7 +1108,7 @@ const HistorySidebar = React.memo(({ sessions, sessionId, filter, setFilter, loa
 HistorySidebar.displayName = 'HistorySidebar';
 
 // ==========================================
-// 11. MAIN PAGE
+// 13. MAIN ENTRY POINT
 // ==========================================
 export default function StudyChatPage() {
   const [messages, setMessages] = useState<any[]>([]);
@@ -1254,8 +1342,8 @@ export default function StudyChatPage() {
         .katex-display {
           overflow-x: auto !important;
           overflow-y: hidden !important;
-          padding: 0.5rem 0 0.5rem 1rem !important; /* Left indent and vertical breathing room inside */
-          margin: 1.75em 0 !important; /* Proper block spacing from surrounding text */
+          padding: 0.5rem 0 0.5rem 1rem !important; 
+          margin: 1.75em 0 !important; 
           scrollbar-width: thin !important;
           max-width: 100% !important;
           display: block !important;

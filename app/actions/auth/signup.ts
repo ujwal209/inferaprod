@@ -205,7 +205,7 @@ export async function verifySignupOtp(userData: any, emailOtp?: string, phoneOtp
 // ------------------------------------------------------------------
 export async function signupWithGoogleAction() {
   const supabase = await createServerClient()
-  const origin = 'https://inferacore.vercel.app'
+  const origin = 'https://inferacore.tech'
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',

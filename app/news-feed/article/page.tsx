@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { getEducationNews } from '@/app/actions/news-feed'
 import { DashboardNavbar } from '@/components/dashboard/dashboard-navbar'
-import { ArrowLeft, ExternalLink, Calendar, User, ImageOff, Zap } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Calendar, User, Zap } from 'lucide-react'
 
 // --- UTILS ---
 function formatDate(dateString: string) {
@@ -23,7 +23,6 @@ function safeStringify(article: any) {
     description: article.description ? article.description.substring(0, 250) : '',
     content: article.content ? article.content.substring(0, 800) + '... [Content truncated for preview]' : '',
     url: article.url || '#',
-    urlToImage: article.urlToImage || null,
     publishedAt: article.publishedAt || new Date().toISOString(),
     source: article.source || { name: 'News' },
     author: article.author || null
@@ -61,10 +60,8 @@ function ArticleReader() {
     async function fetchSuggestions() {
       setLoadingSuggestions(true);
       try {
-        // Fetching general EdTech news for recommendations
         const response = await getEducationNews('EdTech OR University OR "Education Technology"');
         if (response.success && response.articles) {
-          // Filter out the current article if it happens to be in the suggestions
           const filtered = response.articles.filter((a: any) => a.title !== article?.title);
           setSuggestedNews(filtered.slice(0, 5)); // Keep top 5
         }
@@ -118,53 +115,44 @@ function ArticleReader() {
         
         {/* LEFT COLUMN: MAIN ARTICLE */}
         <div className="lg:col-span-8">
-          {/* Hero Image */}
-          {article.urlToImage ? (
-            <div className="w-full h-[300px] sm:h-[450px] rounded-[2rem] overflow-hidden mb-10 shadow-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-[#0c0c0e]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={article.urlToImage} alt={article.title} className="w-full h-full object-cover" />
-            </div>
-          ) : (
-            <div className="w-full h-[200px] rounded-[2rem] mb-10 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#0c0c0e] flex flex-col items-center justify-center text-zinc-400">
-               <ImageOff size={48} strokeWidth={1} />
-            </div>
-          )}
-
-          {/* Meta Data */}
-          <div className="flex flex-wrap items-center gap-4 sm:gap-6 font-google-sans text-[12px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-6">
-            <span className="text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-4 py-2 rounded-lg border border-blue-100 dark:border-blue-500/20">
-              {article.source?.name || 'Publisher'}
-            </span>
-            <span className="flex items-center gap-2">
-              <Calendar size={16} /> {formatDate(article.publishedAt)}
-            </span>
-            {article.author && (
-              <span className="flex items-center gap-2">
-                <User size={16} /> {article.author}
+          
+          <div className="bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800/80 rounded-[2rem] p-8 sm:p-12 shadow-sm">
+            {/* Meta Data */}
+            <div className="flex flex-wrap items-center gap-4 sm:gap-6 font-google-sans text-[12px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-8">
+              <span className="text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-4 py-2 rounded-lg border border-blue-100 dark:border-blue-500/20">
+                {article.source?.name || 'Publisher'}
               </span>
-            )}
-          </div>
+              <span className="flex items-center gap-2">
+                <Calendar size={16} /> {formatDate(article.publishedAt)}
+              </span>
+              {article.author && (
+                <span className="flex items-center gap-2">
+                  <User size={16} /> {article.author}
+                </span>
+              )}
+            </div>
 
-          {/* Title & Description */}
-          <h1 className="font-google-sans text-3xl sm:text-5xl font-extrabold text-zinc-900 dark:text-white tracking-tight leading-[1.15] mb-8">
-            {article.title}
-          </h1>
+            {/* Title */}
+            <h1 className="font-google-sans text-3xl sm:text-5xl font-extrabold text-zinc-900 dark:text-white tracking-tight leading-[1.15] mb-8">
+              {article.title}
+            </h1>
 
-          <div className="h-px w-full bg-zinc-200 dark:bg-zinc-800 my-8" />
+            <div className="h-px w-full bg-zinc-100 dark:bg-zinc-800/80 my-8" />
 
-          {/* Content */}
-          <div className="prose prose-zinc dark:prose-invert max-w-none">
-            <p className="text-xl sm:text-2xl font-medium text-zinc-600 dark:text-zinc-300 leading-relaxed mb-8">
-              {article.description}
-            </p>
-            
-            <p className="text-lg text-zinc-800 dark:text-zinc-400 leading-loose whitespace-pre-wrap">
-              {article.content}
-            </p>
+            {/* Content */}
+            <div className="prose prose-zinc dark:prose-invert max-w-none">
+              <p className="text-xl sm:text-2xl font-medium text-zinc-600 dark:text-zinc-300 leading-relaxed mb-8">
+                {article.description}
+              </p>
+              
+              <p className="text-lg text-zinc-800 dark:text-zinc-400 leading-loose whitespace-pre-wrap">
+                {article.content}
+              </p>
+            </div>
           </div>
 
           {/* Footer CTA */}
-          <div className="mt-16 p-8 sm:p-10 rounded-[2rem] bg-zinc-50 dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 flex flex-col items-center text-center">
+          <div className="mt-12 p-8 sm:p-10 rounded-[2rem] bg-zinc-50 dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 flex flex-col items-center text-center">
             <h3 className="font-google-sans text-2xl font-bold text-zinc-900 dark:text-white mb-3">Continue Reading</h3>
             <p className="text-zinc-500 mb-8 max-w-md">
               This is a preview snippet provided by the publisher. To read the full, uninterrupted article, please visit the original source.
@@ -207,7 +195,7 @@ function ArticleReader() {
                   <Link
                     key={item.url || index}
                     href={`/news-feed/article?data=${safeStringify(item)}`}
-                    className="group flex flex-col gap-3 p-4 rounded-[1.5rem] bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 hover:border-blue-300 dark:hover:border-blue-900/50 hover:shadow-md dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.2)] transition-all duration-300"
+                    className="group flex flex-col gap-3 p-5 rounded-[1.5rem] bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 hover:border-blue-300 dark:hover:border-blue-900/50 hover:shadow-md dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.2)] transition-all duration-300"
                   >
                     <div className="flex items-center gap-2 font-google-sans text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                       <span className="text-blue-600 dark:text-blue-400 truncate max-w-[120px]">
@@ -220,14 +208,6 @@ function ArticleReader() {
                     <h4 className="font-google-sans text-[15px] font-bold text-zinc-900 dark:text-zinc-100 leading-snug line-clamp-3 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                       {item.title}
                     </h4>
-
-                    {/* Show a tiny thumbnail if the suggested article has an image */}
-                    {item.urlToImage && (
-                      <div className="w-full h-24 mt-2 rounded-xl overflow-hidden bg-zinc-100 dark:bg-zinc-900">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={item.urlToImage} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                      </div>
-                    )}
                   </Link>
                 ))}
               </div>

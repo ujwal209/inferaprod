@@ -113,7 +113,7 @@ export async function sendCoachingMessage(
 
   // 3. Send request to Agent
   try {
-    const response = await fetch("https://inferaagent.onrender.com/api/v1/chat", {
+    const response = await fetch("https://inferaagent.onrender.com/api/v1/study", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
