@@ -17,6 +17,8 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import Image from 'next/image'
+import { motion, AnimatePresence } from 'framer-motion'
+import logo from '../public/logo.png'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
@@ -135,8 +137,63 @@ export default function LandingPage() {
   // Prevent flash of landing page while checking session
   if (isCheckingAuth) {
     return (
-      <div className="min-h-screen bg-[#fafafa] dark:bg-[#050505] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      <div className="min-h-screen bg-[#fafafa] dark:bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden">
+        {/* Subtle background ambient light */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-500/5 blur-[120px] rounded-full pointer-events-none" />
+        
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ 
+            duration: 0.8, 
+            ease: [0.16, 1, 0.3, 1] 
+          }}
+          className="relative z-10 flex flex-col items-center gap-8"
+        >
+          <div className="relative">
+            <motion.div
+              animate={{ 
+                opacity: [0.3, 0.6, 0.3],
+                scale: [1, 1.05, 1]
+              }}
+              transition={{ 
+                duration: 2, 
+                repeat: Infinity, 
+                ease: "easeInOut" 
+              }}
+              className="absolute -inset-4 bg-blue-500/10 blur-xl rounded-full"
+            />
+            <Image 
+              src={logo} 
+              alt="Inferacore" 
+              className="h-16 w-auto dark:invert relative z-10" 
+              priority
+            />
+          </div>
+
+          <div className="flex flex-col items-center gap-3">
+            <div className="relative w-12 h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+              <motion.div 
+                className="absolute inset-0 bg-blue-600"
+                initial={{ x: "-100%" }}
+                animate={{ x: "100%" }}
+                transition={{ 
+                  duration: 1.5, 
+                  repeat: Infinity, 
+                  ease: "easeInOut" 
+                }}
+              />
+            </div>
+            <motion.p 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4 }}
+              className="text-[11px] font-bold tracking-[0.2em] uppercase text-zinc-400 dark:text-zinc-500"
+            >
+              Initializing Workspace
+            </motion.p>
+          </div>
+        </motion.div>
       </div>
     );
   }
