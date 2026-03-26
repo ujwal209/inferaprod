@@ -54,13 +54,10 @@ export const formatQuizText = (text: string) => {
   if (!text) return text;
   let t = formatLatex(text);
   
-  // If the text lacks delimiters but clearly contains math patterns (fractions, roots, exponents, sub/superscripts)
   if (!t.includes('$') && !t.includes('\\[') && !t.includes('\\(')) {
-     // Check for strong math indicators
      if (/[\^=<>_]|\\[a-zA-Z]+/.test(t) || (t.includes('/') && t.includes('(') && t.includes(')'))) {
-        // Ensure it's not just a standard conversational sentence containing a slash
         if (!/\b(the|is|of|and|to|in|what|find|calculate|explain|how|why)\b/i.test(t)) {
-            return `$${t}$`; // Auto-wrap in math delimiters
+            return `$${t}$`; 
         }
      }
   }
@@ -420,8 +417,8 @@ export const CopyButton = ({ text, className = "" }: { text: string, className?:
   );
 };
 
-export // 🚀 DIRECT UPLOAD HELPER (Bypass Vercel 4.5MB limit)
-const uploadFilesDirectly = async (files: File[], sessionId: string) => {
+// 🚀 DIRECT UPLOAD HELPER WITH CANCELLATION SUPPORT
+export const uploadFilesDirectly = async (files: File[], sessionId: string, signal?: AbortSignal) => {
   if (files.length === 0) return [];
   
   const AGENT_URL = (process.env.NEXT_PUBLIC_AGENT_URL || "http://127.0.0.1:8789").replace(/\/$/, "");
@@ -432,7 +429,8 @@ const uploadFilesDirectly = async (files: File[], sessionId: string) => {
     
     const response = await fetch(`${AGENT_URL}/api/v1/upload-doc`, {
       method: 'POST',
-      body: formData
+      body: formData,
+      signal
     });
     
     if (!response.ok) throw new Error(`Upload Failed: ${file.name}`);
@@ -443,7 +441,7 @@ const uploadFilesDirectly = async (files: File[], sessionId: string) => {
   return Promise.all(uploadPromises);
 };
 
-const CodeCopyButton = ({ text }: { text: string }) => {
+export const CodeCopyButton = ({ text }: { text: string }) => {
   const [copied, setCopied] = useState(false);
   const handleCopy = async () => {
     try {
@@ -564,31 +562,6 @@ const BaseMarkdownComponents = {
   p: ({ children, ...props }: any) => <p className="text-[14.5px] sm:text-[15px] leading-relaxed mb-3 sm:mb-4 break-words w-full" {...props}>{children}</p>,
   strong: ({ children }: any) => <strong className="font-bold text-zinc-900 dark:text-white break-words">{children}</strong>,
   
-  // 🚀 CUSTOM INTERCEPTOR FOR ATTACHMENTS & LINKS
-  a: ({ node, href, children, ...props }: any) => {
-    // Check if it's our custom internal attachment marker
-    if (href === 'attachment') {
-      return (
-        <div className="flex items-center gap-3 px-4 py-3 bg-zinc-100 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 rounded-xl w-max max-w-full my-3 shadow-sm select-none">
-          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg shrink-0">
-            <FileText size={20} />
-          </div>
-          <span className="text-[13.5px] font-bold text-zinc-700 dark:text-zinc-300 truncate pr-2 font-google-sans">
-            {children}
-          </span>
-        </div>
-      );
-    }
-    
-    // Standard external link
-    return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className="inline text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline underline-offset-2 decoration-blue-500/30 font-semibold transition-colors break-words" {...props}>
-        {children}
-        <span className="inline-flex items-center justify-center bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 text-[9px] font-google-sans uppercase font-bold px-1.5 py-0.5 rounded ml-1 align-middle whitespace-nowrap">Source</span>
-      </a>
-    );
-  },
-
   blockquote: ({ children }: any) => {
     return (
       <div className="w-full mt-3 mb-3 p-3 sm:p-4 bg-blue-50/50 dark:bg-[#111113] border border-blue-200/50 dark:border-zinc-800 rounded-xl flex items-start gap-2.5 shadow-sm min-w-0">
@@ -596,15 +569,68 @@ const BaseMarkdownComponents = {
         <span className="leading-snug text-[13.5px] sm:text-[14.5px] font-outfit font-semibold text-zinc-700 dark:text-zinc-300 break-words w-full">{children}</span>
       </div>
     )
-  },
-  
-  // Renders markdown images as our Interactive Component
-  img: ({ src, alt }: any) => <InteractiveImage src={src} alt={alt} />
+  }
 };
 
-export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null, isLast = false, isTyping = false, messageIndex = 0, lastUserMessage = '' }: any = {}) => {
+export const getMarkdownComponents = ({ sessionId = '', onAnswerSubmitted = null, isLast = false, isTyping = false, isUploading = false, isUser = false, messageIndex = 0, lastUserMessage = '' }: any = {}) => {
   return {
     ...BaseMarkdownComponents,
+    
+    // 🚀 DYNAMIC IMAGE RENDERER
+    img: ({ src, alt }: any) => {
+      const isCurrentlyUploading = src?.startsWith('blob:');
+      
+      if (isCurrentlyUploading) {
+        return (
+          <div className="my-6 w-full relative rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 shadow-xl bg-zinc-50 dark:bg-[#0c0c0e] opacity-70 animate-pulse cursor-wait">
+            <img src={src} alt="Uploading..." className="w-full max-h-[500px] object-contain" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm gap-2">
+              <Loader2 size={32} className="animate-spin text-white drop-shadow-md" />
+              <span className="text-white font-google-sans text-[11px] font-bold uppercase tracking-widest drop-shadow-md">Uploading Image...</span>
+            </div>
+          </div>
+        );
+      }
+      return <InteractiveImage src={src} alt={alt} />;
+    },
+
+    // 🚀 DYNAMIC ATTACHMENT/DOCUMENT RENDERER
+    a: ({ node, href, children, ...props }: any) => {
+      if (href === 'attachment' || (typeof href === 'string' && (href.includes('res.cloudinary.com')))) {
+        const isCurrentlyUploading = href === 'attachment';
+        
+        return (
+          <a 
+            href={isCurrentlyUploading ? undefined : href}
+            target={isCurrentlyUploading ? undefined : "_blank"}
+            rel={isCurrentlyUploading ? undefined : "noopener noreferrer"}
+            className={`relative flex items-center gap-3 px-4 py-3 bg-zinc-100 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 rounded-xl w-max max-w-full my-3 shadow-sm select-none overflow-hidden group transition-colors no-underline ${isCurrentlyUploading ? 'cursor-wait' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800 cursor-pointer'}`}
+          >
+            <div className={`p-2 ${isCurrentlyUploading ? 'bg-blue-600 animate-pulse' : 'bg-blue-100 dark:bg-blue-900/30'} text-blue-600 dark:text-blue-400 rounded-lg shrink-0 transition-colors`}>
+              {isCurrentlyUploading ? <Loader2 size={20} className="animate-spin text-white" /> : <FileText size={20} />}
+            </div>
+            <div className="flex flex-col min-w-0">
+               <span className={`text-[13.5px] font-bold ${isCurrentlyUploading ? 'text-blue-600 animate-pulse' : 'text-zinc-700 dark:text-zinc-300'} truncate pr-2 font-google-sans`}>
+                {children}
+              </span>
+              {isCurrentlyUploading ? (
+                <span className="text-[10px] font-bold text-blue-500/80 uppercase tracking-widest mt-0.5 animate-pulse">Uploading to Infera...</span>
+              ) : (
+                <span className="text-[9px] font-bold text-blue-500/60 uppercase tracking-widest mt-0.5 group-hover:text-blue-600 transition-colors">Open Document</span>
+              )}
+            </div>
+          </a>
+        );
+      }
+      
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer" className="inline text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline underline-offset-2 decoration-blue-500/30 font-semibold transition-colors break-words" {...props}>
+          {children}
+          <span className="inline-flex items-center justify-center bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 text-[9px] font-google-sans uppercase font-bold px-1.5 py-0.5 rounded ml-1 align-middle whitespace-nowrap">Source</span>
+        </a>
+      );
+    },
+
     code: ({ node, className, inline, children, ...props }: any) => {
       const rawText = Array.isArray(children) ? children.join('') : String(children);
       const text = rawText.replace(/\n$/, '');
@@ -835,7 +861,7 @@ const TypewriterMessage = ({ content, isNew, forceStop, scrollRef, onComplete, c
 // ==========================================
 // 9. MESSAGE ITEM
 // ==========================================
-const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isLocallyTyping, displayedContent, onRegenerate, onEditSubmit, isNewAssistant, sessionId, onAnswerSubmitted, messages }: any) => {
+const MessageItem = React.memo(({ m, index, isLast, loading, isUploading, isTypingGlobal, isLocallyTyping, displayedContent, onRegenerate, onEditSubmit, isNewAssistant, sessionId, onAnswerSubmitted, messages }: any) => {
   const isUser = m.role === 'user';
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(m.content || "");
@@ -870,8 +896,8 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
   }, [messages, index]);
 
   const memoizedComponents = useMemo(() => {
-    return getMarkdownComponents({ sessionId, onAnswerSubmitted, isLast, isTyping: isTypingGlobal, messageIndex: index, lastUserMessage });
-  }, [sessionId, onAnswerSubmitted, isLast, isTypingGlobal, index, lastUserMessage]);
+    return getMarkdownComponents({ sessionId, onAnswerSubmitted, isLast, isTyping: isTypingGlobal, isUploading, isUser, messageIndex: index, lastUserMessage });
+  }, [sessionId, onAnswerSubmitted, isLast, isTypingGlobal, isUploading, isUser, index, lastUserMessage]);
 
   if (isEditing) {
     return (
@@ -880,7 +906,7 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
           <textarea value={editValue} onChange={(e) => setEditValue(e.target.value)} className="w-full bg-transparent font-outfit text-[14.5px] sm:text-[15px] text-zinc-900 dark:text-zinc-100 outline-none resize-none custom-scrollbar min-h-[80px]" autoFocus />
           <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/60">
             <button onClick={() => { setIsEditing(false); setEditValue(m.content); }} className="px-3 py-1.5 font-google-sans text-[12px] font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors">Cancel</button>
-            <button onClick={() => { setIsEditing(false); onEditSubmit(index, editValue); }} disabled={loading || isTypingGlobal || !editValue.trim()} className="px-3 py-1.5 font-google-sans text-[12px] font-bold bg-blue-600 text-white hover:bg-blue-500 rounded-lg transition-colors shadow-sm disabled:opacity-50">Save & Regenerate</button>
+            <button onClick={() => { setIsEditing(false); onEditSubmit(index, editValue); }} disabled={loading || isTypingGlobal || isUploading || !editValue.trim()} className="px-3 py-1.5 font-google-sans text-[12px] font-bold bg-blue-600 text-white hover:bg-blue-500 rounded-lg transition-colors shadow-sm disabled:opacity-50">Save & Regenerate</button>
           </div>
         </div>
       </div>
@@ -899,7 +925,7 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
             <ReactMarkdown 
               remarkPlugins={[remarkMath, remarkGfm]} 
               rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
-              urlTransform={(url: string) => url} // <-- FIX: Allows blob URLs
+              urlTransform={(url: string) => url} 
               components={{
                 ...memoizedComponents,
                 p: ({ children }: any) => <p className="font-outfit text-[14.5px] sm:text-[15px] m-0 font-medium tracking-wide whitespace-pre-wrap text-white dark:text-zinc-900 leading-relaxed">{children}</p>,
@@ -913,7 +939,7 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
                 <ReactMarkdown 
                   remarkPlugins={[remarkMath, remarkGfm]} 
                   rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]} 
-                  urlTransform={(url: string) => url} // <-- FIX: Allows blob URLs
+                  urlTransform={(url: string) => url} 
                   components={memoizedComponents}
                 >
                   {cleanText}
@@ -928,9 +954,9 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
         </div>
       </div>
 
-      {!isUser && isLast && !loading && !isTypingGlobal && (
+      {!isUser && isLast && !loading && !isUploading && !isTypingGlobal && (
         <div className="flex w-full justify-start mt-2">
-           <button onClick={() => onAnswerSubmitted("I understand this concept completely. I am ready to learn the very next topic on the roadmap in full, comprehensive detail right now.", true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-500 transition-colors rounded-lg shadow-sm font-semibold text-[13px] active:scale-95">
+           <button onClick={() => onAnswerSubmitted("I understand this concept completely. I am ready to learn the very next topic on the roadmap in full, comprehensive detail right now.", [])} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-500 transition-colors rounded-lg shadow-sm font-semibold text-[13px] active:scale-95">
              <CheckCircle2 size={15} /> <span>Mark as Done</span>
            </button>
         </div>
@@ -956,12 +982,12 @@ const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isL
           </div>
         )}
         <CopyButton text={m.content || ""} />
-        {isUser && !loading && !isTypingGlobal && (
+        {isUser && !loading && !isUploading && !isTypingGlobal && (
           <button onClick={() => setIsEditing(true)} className="flex items-center gap-1 px-2 py-1 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 shadow-sm" title="Edit prompt">
             <PenLine size={13} /> <span className="text-[11px] font-google-sans font-bold">Edit</span>
           </button>
         )}
-        {!isUser && isLast && !loading && !isTypingGlobal && (
+        {!isUser && isLast && !loading && !isUploading && !isTypingGlobal && (
           <button onClick={() => onRegenerate(index)} className="flex items-center gap-1 px-2 py-1 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 shadow-sm" title="Regenerate response">
             <RefreshCw size={13} /> <span className="text-[11px] font-google-sans font-bold">Regenerate</span>
           </button>
@@ -975,7 +1001,7 @@ MessageItem.displayName = 'MessageItem';
 // ==========================================
 // 10. PROMPT BAR
 // ==========================================
-const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryModal, currentProgress = 0 }: any) => {
+const ActivePromptBar = ({ onSubmit, onStop, loading, isUploading, isTyping, setShowHistoryModal, currentProgress = 0 }: any) => {
   const [chatInput, setChatInput] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1002,7 +1028,7 @@ const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryMo
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!loading && !isTyping && (chatInput.trim() || files.length > 0)) {
+      if (!loading && !isUploading && !isTyping && (chatInput.trim() || files.length > 0)) {
         onSubmit(chatInput, files);
         setChatInput('');
         setFiles([]);
@@ -1019,7 +1045,7 @@ const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryMo
         {files.length > 0 && (
           <div className="flex flex-wrap gap-2 px-4 pt-4 pb-1">
             {files.map((file, idx) => (
-              <div key={idx} className="relative flex items-center gap-2 p-1.5 pr-3 rounded-xl bg-zinc-100 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 max-w-[180px] group">
+              <div key={idx} className="relative flex items-center gap-2 p-1.5 pr-3 rounded-xl bg-zinc-100 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 max-w-[180px] group overflow-hidden">
                 {file.type.startsWith('image/') ? (
                   <div className="w-8 h-8 shrink-0 rounded-lg overflow-hidden bg-zinc-200 dark:bg-zinc-800 ring-1 ring-zinc-200 dark:ring-zinc-700">
                     <img src={URL.createObjectURL(file)} alt="preview" className="w-full h-full object-cover" />
@@ -1032,12 +1058,21 @@ const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryMo
                 <span className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 truncate w-full pr-1 font-google-sans uppercase tracking-tight">
                   {file.name}
                 </span>
-                <button 
-                  onClick={() => removeFile(idx)}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full flex items-center justify-center text-zinc-500 hover:text-red-500 shadow-md transition-all scale-0 group-hover:scale-100"
-                >
-                  <X size={10} />
-                </button>
+                
+                {isUploading && (
+                  <div className="absolute inset-0 bg-white/70 dark:bg-[#111113]/70 backdrop-blur-[1px] flex items-center justify-center z-10 animate-in fade-in duration-300">
+                    <Loader2 size={14} className="animate-spin text-blue-600 dark:text-blue-400" />
+                  </div>
+                )}
+
+                {!isUploading && (
+                  <button 
+                    onClick={() => removeFile(idx)}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full flex items-center justify-center text-zinc-500 hover:text-red-500 shadow-md transition-all scale-0 group-hover:scale-100"
+                  >
+                    <X size={10} />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1054,7 +1089,7 @@ const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryMo
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={loading || isTyping}
+            disabled={loading || isUploading || isTyping}
             className="h-10 w-10 sm:h-11 sm:w-11 mb-1 shrink-0 flex items-center justify-center rounded-xl text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-all disabled:opacity-50 active:scale-95"
             title="Attach Study Material"
           >
@@ -1066,15 +1101,15 @@ const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryMo
             value={chatInput}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder={files.length > 0 ? "Context added. Ask me to explain or quiz you on these..." : "Ask a follow-up or request your progress tracker..."}
+            placeholder={isUploading ? "Uploading study materials..." : files.length > 0 ? "Context added. Ask me to explain or quiz you on these..." : "Ask a follow-up or request your progress tracker..."}
             className="flex-1 bg-transparent font-outfit text-[14.5px] sm:text-[15px] font-medium text-zinc-900 dark:text-zinc-100 outline-none placeholder:text-zinc-500 dark:placeholder:text-zinc-400 min-h-[44px] max-h-[180px] resize-none custom-scrollbar leading-relaxed pt-1.5 pl-1"
-            disabled={loading || isTyping}
+            disabled={loading || isUploading || isTyping}
             rows={1}
           />
 
           <button
             onClick={() => {
-              if (loading || isTyping) onStop();
+              if (loading || isUploading || isTyping) onStop();
               else if (chatInput.trim() || files.length > 0) {
                 onSubmit(chatInput, files);
                 setChatInput('');
@@ -1082,20 +1117,20 @@ const ActivePromptBar = ({ onSubmit, onStop, loading, isTyping, setShowHistoryMo
                 if (textareaRef.current) textareaRef.current.style.height = 'auto';
               }
             }}
-            disabled={!loading && !isTyping && !chatInput.trim() && files.length === 0}
+            disabled={(!loading && !isUploading && !isTyping && !chatInput.trim() && files.length === 0)}
             className={`h-9 w-9 sm:h-10 sm:w-10 mb-1 shrink-0 flex items-center justify-center rounded-xl transition-all duration-200 shadow-sm ${
-              loading || isTyping ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:scale-95 shadow-none' : (!chatInput.trim() && files.length === 0) ? 'bg-zinc-100 dark:bg-[#111113] border border-transparent dark:border-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed shadow-none' : 'bg-blue-600 text-white hover:bg-blue-500 active:scale-95 shadow-[0_4px_14px_rgba(37,99,235,0.3)]'
+              loading || isUploading || isTyping ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:scale-95 shadow-none' : (!chatInput.trim() && files.length === 0) ? 'bg-zinc-100 dark:bg-[#111113] border border-transparent dark:border-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed shadow-none' : 'bg-blue-600 text-white hover:bg-blue-500 active:scale-95 shadow-[0_4px_14px_rgba(37,99,235,0.3)]'
             }`}
           >
-            {loading || isTyping ? <Square size={14} className="fill-current" /> : <Send size={16} className="-translate-x-px translate-y-px" />}
+            {loading || isUploading || isTyping ? <Square size={14} className="fill-current" /> : <Send size={16} className="-translate-x-px translate-y-px" />}
           </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 border-t border-zinc-200 dark:border-zinc-800 bg-transparent overflow-x-auto scrollbar-hide">
-          <button type="button" onClick={() => { if (!loading && !isTyping) { onSubmit("I'm ready to take a quick quiz on this concept."); } }} disabled={loading || isTyping} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/60 font-google-sans text-[11px] font-bold transition-all shrink-0 text-zinc-500 dark:text-zinc-400 disabled:opacity-50">
+          <button type="button" onClick={() => { if (!loading && !isUploading && !isTyping) { onSubmit("I'm ready to take a quick quiz on this concept.", []); } }} disabled={loading || isUploading || isTyping} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/60 font-google-sans text-[11px] font-bold transition-all shrink-0 text-zinc-500 dark:text-zinc-400 disabled:opacity-50">
             <CheckSquare size={13} className="text-blue-500" /> Take Quiz
           </button>
-          <button type="button" onClick={() => { if (!loading && !isTyping) { onSubmit("Please show my current progress tracker and tell me what we should cover next."); } }} disabled={loading || isTyping} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/60 font-google-sans text-[11px] font-bold transition-all shrink-0 text-zinc-500 dark:text-zinc-400 disabled:opacity-50">
+          <button type="button" onClick={() => { if (!loading && !isUploading && !isTyping) { onSubmit("Please show my current progress tracker and tell me what we should cover next.", []); } }} disabled={loading || isUploading || isTyping} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/60 font-google-sans text-[11px] font-bold transition-all shrink-0 text-zinc-500 dark:text-zinc-400 disabled:opacity-50">
             <Target size={13} className="text-blue-500" /> Track Progress
           </button>
           <button type="button" onClick={() => setShowHistoryModal(true)} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/60 font-google-sans text-[11px] font-bold transition-all shrink-0 text-zinc-500 dark:text-zinc-400">
@@ -1134,7 +1169,7 @@ const SUGGESTIONS = [
   { subject: 'Data Structures', level: 'Year 2', q: 'Time complexity of a Hash Map?' },
 ]
 
-const InitForm = ({ onSubmit, loading }: { onSubmit: (e: any, files: File[]) => void, loading: boolean }) => {
+const InitForm = ({ onSubmit, onStop, loading, isUploading }: { onSubmit: (e: any, files: File[]) => void, onStop: () => void, loading: boolean, isUploading: boolean }) => {
   const [subject, setSubject] = useState('')
   const [level, setLevel] = useState('')
   const [question, setQuestion] = useState('')
@@ -1175,21 +1210,21 @@ const InitForm = ({ onSubmit, loading }: { onSubmit: (e: any, files: File[]) => 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-5">
             <div className="space-y-1.5">
               <label className="font-google-sans text-[10px] md:text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-[0.15em] pl-1">Subject</label>
-              <input name="subject" value={subject} onChange={(e) => setSubject(e.target.value)} required placeholder="e.g. Physics" className="font-outfit w-full bg-zinc-50 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 px-3.5 py-3 rounded-xl text-[13.5px] font-medium outline-none transition-all text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" disabled={loading} />
+              <input name="subject" value={subject} onChange={(e) => setSubject(e.target.value)} required placeholder="e.g. Physics" className="font-outfit w-full bg-zinc-50 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 px-3.5 py-3 rounded-xl text-[13.5px] font-medium outline-none transition-all text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" disabled={loading || isUploading} />
             </div>
             <div className="space-y-1.5">
               <label className="font-google-sans text-[10px] md:text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-[0.15em] pl-1">Academic Level</label>
-              <input name="level" value={level} onChange={(e) => setLevel(e.target.value)} required placeholder="e.g. Graduate" className="font-outfit w-full bg-zinc-50 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 px-3.5 py-3 rounded-xl text-[13.5px] font-medium outline-none transition-all text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" disabled={loading} />
+              <input name="level" value={level} onChange={(e) => setLevel(e.target.value)} required placeholder="e.g. Graduate" className="font-outfit w-full bg-zinc-50 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 px-3.5 py-3 rounded-xl text-[13.5px] font-medium outline-none transition-all text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" disabled={loading || isUploading} />
             </div>
           </div>
           <div className="space-y-1.5 relative">
             <label className="font-google-sans text-[10px] md:text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-[0.15em] pl-1">Your Primary Inquiry</label>
             <div className="relative">
-              <textarea name="question" value={question} onChange={(e) => setQuestion(e.target.value)} required placeholder="Describe the concept or problem you'd like to master..." className="font-outfit w-full bg-zinc-50 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 px-4 py-3.5 pr-12 rounded-[1.25rem] text-[14px] md:text-[14.5px] font-medium outline-none transition-all text-zinc-900 dark:text-zinc-100 min-h-[90px] md:min-h-[100px] max-h-[160px] resize-none leading-relaxed custom-scrollbar" disabled={loading} />
+              <textarea name="question" value={question} onChange={(e) => setQuestion(e.target.value)} required placeholder="Describe the concept or problem you'd like to master..." className="font-outfit w-full bg-zinc-50 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 px-4 py-3.5 pr-12 rounded-[1.25rem] text-[14px] md:text-[14.5px] font-medium outline-none transition-all text-zinc-900 dark:text-zinc-100 min-h-[90px] md:min-h-[100px] max-h-[160px] resize-none leading-relaxed custom-scrollbar" disabled={loading || isUploading} />
               <button 
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={loading}
+                disabled={loading || isUploading}
                 className="absolute right-3 bottom-3 p-2 text-zinc-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all disabled:opacity-50"
                 title="Attach Materials"
               >
@@ -1201,9 +1236,20 @@ const InitForm = ({ onSubmit, loading }: { onSubmit: (e: any, files: File[]) => 
             {files.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-3 animate-in fade-in slide-in-from-top-1">
                 {files.map((file, idx) => (
-                  <div key={idx} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/30">
+                  <div key={idx} className="relative flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/30 overflow-hidden">
                     <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 truncate max-w-[120px]">{file.name}</span>
-                    <button type="button" onClick={() => removeFile(idx)} className="text-blue-400 hover:text-red-500"><X size={12} /></button>
+                    
+                    {isUploading && (
+                      <div className="absolute inset-0 bg-blue-50/70 dark:bg-blue-900/40 backdrop-blur-[1px] flex items-center justify-center z-10 animate-in fade-in duration-300">
+                         <Loader2 size={12} className="animate-spin text-blue-600 dark:text-blue-400" />
+                      </div>
+                    )}
+                    
+                    {!isUploading && (
+                      <button type="button" onClick={() => removeFile(idx)} className="text-blue-400 hover:text-red-500 transition-colors">
+                        <X size={12} />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1212,12 +1258,18 @@ const InitForm = ({ onSubmit, loading }: { onSubmit: (e: any, files: File[]) => 
           <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5 pt-4 md:pt-5 border-t border-zinc-100 dark:border-zinc-800/60 mt-1 md:mt-2">
             <div className="flex flex-wrap gap-2 justify-start w-full xl:w-auto">
               {SUGGESTIONS.map((s, idx) => (
-                <button key={idx} type="button" onClick={() => handleSuggestion(s)} disabled={loading} className="px-3 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-full font-google-sans text-[11px] font-bold text-zinc-600 dark:text-zinc-300 hover:border-blue-500 hover:text-blue-600 transition-all active:scale-95 shadow-sm">{s.subject}</button>
+                <button key={idx} type="button" onClick={() => handleSuggestion(s)} disabled={loading || isUploading} className="px-3 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-full font-google-sans text-[11px] font-bold text-zinc-600 dark:text-zinc-300 hover:border-blue-500 hover:text-blue-600 transition-all active:scale-95 shadow-sm">{s.subject}</button>
               ))}
             </div>
-            <button type="submit" disabled={loading} className="w-full xl:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-google-sans text-[13px] font-bold shadow-[0_4px_14px_rgba(37,99,235,0.25)] transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-70 group shrink-0">
-              {loading ? <><Loader2 className="animate-spin" size={16} /><span>Initializing...</span></> : <><GraduationCap size={18} /><span>Start Learning</span><ArrowRight size={16} className="hidden md:block group-hover:translate-x-1 transition-transform" /></>}
+            
+            <button 
+              type={isUploading || loading ? "button" : "submit"} 
+              onClick={() => { if (isUploading || loading) onStop(); }}
+              className="w-full xl:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-google-sans text-[13px] font-bold shadow-[0_4px_14px_rgba(37,99,235,0.25)] transition-all active:scale-95 flex items-center justify-center gap-2 group shrink-0"
+            >
+              {isUploading ? <><Square size={14} className="fill-current" /><span>Cancel Upload</span></> : loading ? <><Square size={14} className="fill-current" /><span>Cancel</span></> : <><GraduationCap size={18} /><span>Start Learning</span><ArrowRight size={16} className="hidden md:block group-hover:translate-x-1 transition-transform" /></>}
             </button>
+
           </div>
         </form>
       </div>
@@ -1327,10 +1379,13 @@ export default function StudyChatPage() {
   const [messages, setMessages] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [forceStop, setForceStop] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  
   const requestRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null); // 🚀 Handles physical cancellation
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1348,7 +1403,7 @@ export default function StudyChatPage() {
         scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
       }, 100);
     }
-  }, [messages, loading, isTyping]);
+  }, [messages, loading, isTyping, isUploading]);
 
   useEffect(() => {
     getStudySessions().then((fetchedSessions) => {
@@ -1381,16 +1436,21 @@ export default function StudyChatPage() {
     getStudySessions().then(setSessions);
   };
 
+  // 🚀 CANCELLATION HANDLER
   const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort(); // Physically kill the upload request
+      abortControllerRef.current = null;
+    }
     setForceStop(true); 
     setLoading(false); 
+    setIsUploading(false);
     setIsTyping(false);
   };
 
   const handleInitSubmit = async (e: React.FormEvent<HTMLFormElement>, files: File[] = []) => {
     e.preventDefault();
-    if (loading) return;
-    setLoading(true);
+    if (loading || isUploading) return;
 
     const formData = new FormData(e.currentTarget);
     const subject = formData.get('subject') as string;
@@ -1399,35 +1459,55 @@ export default function StudyChatPage() {
 
     let userMessage = `Topic: ${subject} (${level})\nQuestion: ${question}\n\nPlease start teaching me step-by-step using the Socratic method.`;
     
-    // Append file indicators for local UI display with our special markup
-    const imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
-    const fileMarkdown = files
-      .map(f => {
-        const ext = f.name.split('.').pop()?.toLowerCase() || '';
-        if (imageExtensions.includes(ext)) {
-          return `\n\n![${f.name}](${URL.createObjectURL(f)})`;
-        } else {
-          return `\n\n[${f.name}](attachment)`;
-        }
-      })
-      .join("");
-    
-    const localDisplayMessage = userMessage + fileMarkdown;
-    setMessages([{ role: 'user', content: localDisplayMessage }]);
-
     try {
-      // 🚀 STEP 1: INITIALIZE SESSION FIRST
       const newSessionId = await initializeSession(subject, { subject, level });
       setSessionId(newSessionId);
       getStudySessions().then(setSessions);
 
-      // 🚀 STEP 2: UPLOAD FILES DIRECTLY TO PYTHON
-      const uploadedUrls = await uploadFilesDirectly(files, newSessionId);
+      const imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
+      const initialMarkdown = files.map(f => {
+        const ext = f.name.split('.').pop()?.toLowerCase() || '';
+        if (imageExtensions.includes(ext)) return `\n\n![${f.name}](${URL.createObjectURL(f)})`;
+        return `\n\n[${f.name}](attachment)`;
+      }).join("");
 
-      // 🚀 STEP 3: SEND MESSAGE WITH PRE-UPLOADED URLS
+      setMessages([{ role: 'user', content: userMessage + initialMarkdown }]);
+
+      let uploadedUrls: string[] = [];
+      if (files.length > 0) {
+        setIsUploading(true);
+        abortControllerRef.current = new AbortController();
+        
+        try {
+          uploadedUrls = await uploadFilesDirectly(files, newSessionId, abortControllerRef.current.signal);
+        } catch (err: any) {
+          if (err.name === 'AbortError') {
+             // 🚀 REVERT UI IF CANCELLED
+             setMessages([]); 
+             return;
+          }
+          throw err;
+        } finally {
+          setIsUploading(false);
+          abortControllerRef.current = null;
+        }
+      }
+
+      setLoading(true); 
+      
+      const fileMarkdown = uploadedUrls.map(url => {
+        const fn = url.split('/').pop() || "Document";
+        const ex = url.split('.').pop()?.toLowerCase() || '';
+        if (imageExtensions.includes(ex)) return `\n\n![${fn}](${url})`;
+        return `\n\n[${fn}](${url})`; 
+      }).join("");
+
+      const localDisplayContent = userMessage + fileMarkdown;
+      setMessages([{ role: 'user', content: localDisplayContent }]);
+
       const res = await sendStudyMessage(newSessionId, userMessage, uploadedUrls, undefined, undefined);
 
-      setMessages([{ role: 'user', content: localDisplayMessage }, { role: 'assistant', content: res.content }]);
+      setMessages([{ role: 'user', content: localDisplayContent }, { role: 'assistant', content: res.content }]);
       setLastAssistantIndex(1);
       setIsTyping(true);
     } catch (err: any) {
@@ -1437,11 +1517,14 @@ export default function StudyChatPage() {
         { role: 'assistant', content: `**System Error:** API Token Limit Exceeded or Connection Failed.\n\nPlease start a new session to continue.` }
       ]);
       setLastAssistantIndex(1);
-    } finally { setLoading(false); }
+    } finally { 
+      setLoading(false); 
+      setIsUploading(false);
+    }
   };
 
   const handleChatSubmit = async (text: string, files: File[] = [], force = false) => {
-    if (!force && (loading || isTyping)) return;
+    if (!force && (loading || isTyping || isUploading)) return;
     if (force) {
       setForceStop(true);
       setIsTyping(false);
@@ -1449,27 +1532,10 @@ export default function StudyChatPage() {
 
     const reqId = ++requestRef.current;
     
-    // UI-side formatting for our special markdown interceptors
-    let localDisplayContent = text;
-    const imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
-    const fileMarkdown = files
-      .map(f => {
-        const ext = f.name.split('.').pop()?.toLowerCase() || '';
-        if (imageExtensions.includes(ext)) {
-          return `\n\n![${f.name}](${URL.createObjectURL(f)})`;
-        } else {
-          return `\n\n[${f.name}](attachment)`;
-        }
-      })
-      .join("");
-    
-    localDisplayContent += fileMarkdown;
-
-    setMessages(prev => [...prev, { role: 'user', content: localDisplayContent }]);
-    setLoading(true);
+    // Save current UI state in case user cancels the upload
+    const prevMessagesSnapshot = [...messages];
 
     try {
-      // 🚀 ENSURE WE HAVE A SESSION (Bypass Vercel direct approach)
       let targetSessionId = sessionId;
       if (!targetSessionId) {
         targetSessionId = await initializeSession(text.slice(0, 30));
@@ -1477,10 +1543,53 @@ export default function StudyChatPage() {
         getStudySessions().then(setSessions);
       }
 
-      // 🚀 UPLOAD FILES DIRECTLY TO PYTHON
-      const uploadedUrls = await uploadFilesDirectly(files, targetSessionId);
+      const imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
+      const initialMarkdown = files.map(f => {
+        const ext = f.name.split('.').pop()?.toLowerCase() || '';
+        if (imageExtensions.includes(ext)) return `\n\n![${f.name}](${URL.createObjectURL(f)})`;
+        return `\n\n[${f.name}](attachment)`;
+      }).join("");
 
-      // 🚀 SEND CHAT
+      setMessages(prev => [...prev, { role: 'user', content: text + initialMarkdown }]);
+
+      let uploadedUrls: string[] = [];
+      if (files.length > 0) {
+        setIsUploading(true);
+        abortControllerRef.current = new AbortController();
+        
+        try {
+          uploadedUrls = await uploadFilesDirectly(files, targetSessionId, abortControllerRef.current.signal);
+        } catch (err: any) {
+          if (err.name === 'AbortError') {
+             // 🚀 REVERT UI IF CANCELLED
+             setMessages(prevMessagesSnapshot); 
+             return;
+          }
+          throw err;
+        } finally {
+          setIsUploading(false);
+          abortControllerRef.current = null;
+        }
+      }
+
+      setLoading(true);
+
+      const fileMarkdown = uploadedUrls.map(url => {
+        const fn = url.split('/').pop() || "Document";
+        const ex = url.split('.').pop()?.toLowerCase() || '';
+        if (imageExtensions.includes(ex)) return `\n\n![${fn}](${url})`;
+        return `\n\n[${fn}](${url})`;
+      }).join("");
+
+      const localDisplayContent = text + fileMarkdown;
+      
+      setMessages(prev => {
+        const copy = [...prev];
+        const lastUserIdx = copy.findLastIndex(m => m.role === 'user');
+        if (lastUserIdx !== -1) copy[lastUserIdx] = { ...copy[lastUserIdx], content: localDisplayContent };
+        return copy;
+      });
+
       const res = await sendStudyMessage(targetSessionId, text, uploadedUrls);
       if (requestRef.current !== reqId) return;
 
@@ -1499,7 +1608,12 @@ export default function StudyChatPage() {
         ]);
         setIsTyping(false);
       }
-    } finally { if (requestRef.current === reqId) setLoading(false); }
+    } finally { 
+      if (requestRef.current === reqId) { 
+        setLoading(false); 
+        setIsUploading(false); 
+      } 
+    }
   };
 
   const handleEditSubmit = async (index: number, newText: string) => {
@@ -1680,7 +1794,7 @@ export default function StudyChatPage() {
           {!messages.length ? (
             <div className="flex-1 overflow-y-auto flex flex-col p-4 sm:p-8 custom-scrollbar pt-20 md:pt-8">
               <div className="m-auto w-full pt-4 pb-8">
-                <InitForm onSubmit={handleInitSubmit} loading={loading} />
+                <InitForm onSubmit={handleInitSubmit} onStop={handleStop} loading={loading} isUploading={isUploading} />
               </div>
             </div>
           ) : (
@@ -1693,19 +1807,19 @@ export default function StudyChatPage() {
                       return (
                         <TypewriterMessage key={`tw-${i}`} content={m.content} isNew={true} forceStop={forceStop} onComplete={() => setIsTyping(false)} scrollRef={scrollRef}>
                           {(displayed: any, isLocalTyping: boolean) => (
-                            <MessageItem m={m} index={i} isLast={i === messages.length - 1} loading={loading} isTypingGlobal={isTyping} onRegenerate={handleRegenerate} onEditSubmit={handleEditSubmit} isNewAssistant={true} forceStop={forceStop} onTypingComplete={() => setIsTyping(false)} displayedContent={displayed} isLocallyTyping={isLocalTyping} sessionId={sessionId} onAnswerSubmitted={handleChatSubmit} messages={messages} />
+                            <MessageItem m={m} index={i} isLast={i === messages.length - 1} loading={loading} isUploading={isUploading} isTypingGlobal={isTyping} onRegenerate={handleRegenerate} onEditSubmit={handleEditSubmit} isNewAssistant={true} forceStop={forceStop} onTypingComplete={() => setIsTyping(false)} displayedContent={displayed} isLocallyTyping={isLocalTyping} sessionId={sessionId} onAnswerSubmitted={handleChatSubmit} messages={messages} />
                           )}
                         </TypewriterMessage>
                       );
                     }
-                    return <MessageItem key={`msg-${i}`} m={m} index={i} isLast={m.role === 'assistant' && i === messages.length - 1} loading={loading} isTypingGlobal={isTyping} onRegenerate={handleRegenerate} onEditSubmit={handleEditSubmit} isNewAssistant={false} sessionId={sessionId} onAnswerSubmitted={handleChatSubmit} messages={messages} />;
+                    return <MessageItem key={`msg-${i}`} m={m} index={i} isLast={m.role === 'assistant' && i === messages.length - 1} loading={loading} isUploading={isUploading} isTypingGlobal={isTyping} onRegenerate={handleRegenerate} onEditSubmit={handleEditSubmit} isNewAssistant={false} sessionId={sessionId} onAnswerSubmitted={handleChatSubmit} messages={messages} />;
                   })}
 
-                  {loading && !isTyping && (
+                  {loading && !isUploading && !isTyping && (
                     <div className="flex w-full items-start animate-in fade-in slide-in-from-bottom-2 duration-300">
                       <div className="flex items-center gap-2.5 text-zinc-500 bg-white dark:bg-[#0c0c0e] px-4 py-3 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm w-fit">
                         <Loader2 className="animate-spin text-blue-500" size={16} />
-                        <span className="font-google-sans text-[12px] font-bold text-zinc-700 dark:text-zinc-300">Processing...</span>
+                        <span className="font-google-sans text-[12px] font-bold text-zinc-700 dark:text-zinc-300">Generating Response...</span>
                       </div>
                     </div>
                   )}
@@ -1719,6 +1833,7 @@ export default function StudyChatPage() {
               onSubmit={(text: string, files: File[]) => handleChatSubmit(text, files)} 
               onStop={handleStop} 
               loading={loading} 
+              isUploading={isUploading}
               isTyping={isTyping}
               setShowHistoryModal={setShowHistoryModal}
               currentProgress={currentProgress}

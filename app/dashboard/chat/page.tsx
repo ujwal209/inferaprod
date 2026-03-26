@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -69,8 +69,8 @@ const CodeCopyButton = ({ text }: { text: string }) => {
   );
 };
 
-// 🚀 DIRECT UPLOAD HELPER (Bypass Vercel 4.5MB limit)
-const uploadFilesDirectly = async (files: File[], sessionId: string) => {
+// 🚀 DIRECT UPLOAD HELPER WITH CANCELLATION SUPPORT
+const uploadFilesDirectly = async (files: File[], sessionId: string, signal?: AbortSignal) => {
   if (files.length === 0) return [];
   
   const AGENT_URL = (process.env.NEXT_PUBLIC_AGENT_URL || "http://127.0.0.1:8789").replace(/\/$/, "");
@@ -81,7 +81,8 @@ const uploadFilesDirectly = async (files: File[], sessionId: string) => {
     
     const response = await fetch(`${AGENT_URL}/api/v1/upload-doc`, {
       method: 'POST',
-      body: formData
+      body: formData,
+      signal // 🚀 Attached AbortSignal here
     });
     
     if (!response.ok) throw new Error(`Upload Failed: ${file.name}`);
@@ -152,12 +153,14 @@ const PromptBar = ({
   onSubmit, 
   onStop,
   isGenerating,
+  isUploading,
   editTrigger,
   isCentered
 }: { 
-  onSubmit: (val: string, files: File[], deep: boolean, web: boolean) => void, 
+  onSubmit: (val: string, files: File[], deep: boolean, web: boolean) => Promise<void>, 
   onStop: () => void,
   isGenerating: boolean,
+  isUploading: boolean,
   editTrigger: {text: string, ts: number} | null,
   isCentered: boolean
 }) => {
@@ -206,14 +209,17 @@ const PromptBar = ({
     setFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
-  const handleAction = () => {
-    if (isGenerating) {
+  const handleAction = async () => {
+    if (isGenerating || isUploading) {
       onStop();
     } else if (text.trim() || files.length > 0) {
-      onSubmit(text, files, deepSearch, webAccess);
+      const submittedText = text;
+      const submittedFiles = [...files];
       setText('');
-      setFiles([]);
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      setFiles([]); // Clear local preview instantly to move to chat bubble
+      
+      await onSubmit(submittedText, submittedFiles, deepSearch, webAccess);
     }
   };
 
@@ -225,11 +231,11 @@ const PromptBar = ({
         
         <div className="bg-white dark:bg-[#0c0c0e] border border-zinc-300 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-600 focus-within:border-blue-500 dark:focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10 rounded-2xl sm:rounded-3xl transition-all duration-300 shadow-[0_8px_30px_rgba(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.4)] flex flex-col">
           
-          {/* FILE PREVIEW AREA */}
+          {/* FILE PREVIEW AREA BEFORE SENDING */}
           {files.length > 0 && (
             <div className="flex flex-wrap gap-3 px-4 pt-4 pb-1">
               {files.map((file, idx) => (
-                <div key={idx} className="relative flex items-center gap-2 p-2 pr-3 rounded-xl bg-zinc-100 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 max-w-[200px]">
+                <div key={idx} className="relative flex items-center gap-2 p-2 pr-3 rounded-xl bg-zinc-100 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 max-w-[200px] overflow-hidden">
                   {file.type.startsWith('image/') ? (
                     <div className="w-8 h-8 shrink-0 rounded-md overflow-hidden bg-zinc-200 dark:bg-zinc-800">
                       <img src={URL.createObjectURL(file)} alt="preview" className="w-full h-full object-cover" />
@@ -242,12 +248,21 @@ const PromptBar = ({
                   <span className="text-[12px] font-medium text-zinc-700 dark:text-zinc-300 truncate w-full">
                     {file.name}
                   </span>
-                  <button 
-                    onClick={() => removeFile(idx)}
-                    className="absolute -top-2 -right-2 w-5 h-5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full flex items-center justify-center text-zinc-500 hover:text-red-500 shadow-sm transition-colors"
-                  >
-                    <X size={12} />
-                  </button>
+
+                  {isUploading && (
+                    <div className="absolute inset-0 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-[1px] flex items-center justify-center z-10 animate-in fade-in duration-300">
+                      <Loader2 size={16} className="animate-spin text-blue-600 dark:text-blue-400" />
+                    </div>
+                  )}
+
+                  {!isUploading && (
+                    <button 
+                      onClick={() => removeFile(idx)}
+                      className="absolute -top-2 -right-2 w-5 h-5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-full flex items-center justify-center text-zinc-500 hover:text-red-500 shadow-sm transition-colors"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -264,7 +279,7 @@ const PromptBar = ({
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isGenerating}
+              disabled={isGenerating || isUploading}
               className="h-10 w-10 sm:h-12 sm:w-12 mb-1.5 shrink-0 flex items-center justify-center rounded-xl sm:rounded-2xl text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50"
               title="Attach File or Image"
             >
@@ -276,24 +291,24 @@ const PromptBar = ({
               value={text}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
-              placeholder="Message INFERA CORE or drop a file..."
+              placeholder={isUploading ? "Uploading files to Infera engine..." : "Message INFERA CORE or drop a file..."}
               className="flex-1 bg-transparent font-outfit text-[15px] sm:text-[16px] font-medium text-zinc-900 dark:text-zinc-100 outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500 min-h-[52px] sm:min-h-[60px] max-h-[180px] resize-none custom-scrollbar leading-relaxed pt-2.5 sm:pt-3.5"
-              disabled={isGenerating && !text.trim() && files.length === 0}
+              disabled={isGenerating || isUploading}
               rows={1}
             />
             
             <button
               onClick={handleAction}
-              disabled={!isGenerating && !text.trim() && files.length === 0}
+              disabled={(isUploading || !isGenerating) && !text.trim() && files.length === 0}
               className={`h-10 w-10 sm:h-12 sm:w-12 mb-1.5 shrink-0 flex items-center justify-center rounded-xl sm:rounded-2xl transition-all duration-200 shadow-sm ${
-                isGenerating
+                isGenerating || isUploading
                   ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:scale-95'
                   : (!text.trim() && files.length === 0)
                     ? 'bg-zinc-100 dark:bg-[#111113] text-zinc-400 dark:text-zinc-600 border border-transparent dark:border-zinc-800 cursor-not-allowed'
                     : 'bg-blue-600 text-white hover:bg-blue-500 active:scale-95 shadow-[0_4px_14px_rgba(37,99,235,0.3)]'
               }`}
             >
-              {isGenerating ? <Square size={16} className="fill-current" /> : <Send size={20} className="-translate-x-px translate-y-px" />}
+              {isUploading ? <Loader2 size={16} className="animate-spin" /> : isGenerating ? <Square size={16} className="fill-current" /> : <Send size={20} className="-translate-x-px translate-y-px" />}
             </button>
           </div>
 
@@ -352,9 +367,12 @@ export default function AICoachingMentor() {
   const [sessions, setSessions] = useState<any[]>([]);
   
   const [loading, setLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [forceStop, setForceStop] = useState(false);
+  
   const requestRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null); // 🚀 Holds our cancellation signal
   
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -375,7 +393,7 @@ export default function AICoachingMentor() {
         scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
       }, 100);
     }
-  }, [messages, loading, isTyping]);
+  }, [messages, loading, isTyping, isUploading]);
 
   const refreshSessions = async () => { setSessions(await getSessions()); };
 
@@ -403,106 +421,142 @@ export default function AICoachingMentor() {
     refreshSessions();
   };
 
+  // 🚀 ABORT HANDLER
   const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort(); // Physically kill the upload
+      abortControllerRef.current = null;
+    }
     requestRef.current++; 
-    setLoading(false);
     setForceStop(true); 
+    setLoading(false);
+    setIsUploading(false);
     setIsTyping(false);
   };
 
-  const getSafeResponseText = (res: any): string => {
-    if (!res) return "Error: Received empty response from server.";
-    if (typeof res === 'string') return res;
-    return res.content || res.text || res.message || res.response || JSON.stringify(res);
+  // 🚀 MAIN SUBMIT HANDLER (State Master + Revert Logic)
+  const submitPrompt = async (text: string, attachedFiles: File[] = [], deepSearch: boolean = false, webAccess: boolean = false) => {
+    if ((!text.trim() && attachedFiles.length === 0) || loading || isUploading || isTyping) return;
+    const reqId = ++requestRef.current;
+    setForceStop(false);
+
+    // Save snapshot of UI state in case the user clicks cancel
+    const prevMessagesSnapshot = [...messages];
+    
+    // Determine initial state based on files
+    if (attachedFiles.length > 0) setIsUploading(true);
+    else setLoading(true);
+
+    try {
+      let targetSessionId = sessionId;
+      if (!targetSessionId) {
+        targetSessionId = await initializeSession(text || "Uploaded File");
+        setSessionId(targetSessionId);
+      }
+
+      // 1. SHOW PRELIMINARY LOCAL PREVIEW
+      const imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
+      const initialMarkdown = attachedFiles.map(f => {
+        const ext = f.name.split('.').pop()?.toLowerCase() || '';
+        if (imageExtensions.includes(ext)) return `\n\n![${f.name}](${URL.createObjectURL(f)})`;
+        return `\n\n[${f.name}](attachment)`; // Temporary flag string for dynamic renderer
+      }).join("");
+      
+      setMessages(prev => [...prev, { role: 'user', content: (text || "Uploaded files.") + initialMarkdown }]);
+
+      // 2. DIRECT UPLOAD PHASE
+      let uploadedUrls: string[] = [];
+      if (attachedFiles.length > 0) {
+        abortControllerRef.current = new AbortController(); // Activate signal
+        try {
+          uploadedUrls = await uploadFilesDirectly(attachedFiles, targetSessionId, abortControllerRef.current.signal);
+        } catch (uploadErr: any) {
+          if (uploadErr.name === 'AbortError') {
+             // 🚀 PERFECT REVERT IF USER CLICKS CANCEL
+             setMessages(prevMessagesSnapshot); 
+             return; // Stop silently without throwing errors
+          }
+          throw uploadErr;
+        } finally {
+          abortControllerRef.current = null; // Clean up signal
+        }
+        setIsUploading(false); // End upload state
+        setLoading(true);      // Begin LLM generation state
+      }
+
+      // 3. SWAP LOCAL URLs FOR CLOUDINARY URLs
+      const fileMarkdown = uploadedUrls.map((url) => {
+        const ext = url.split('.').pop()?.toLowerCase() || '';
+        const fileName = url.split('/').pop() || "Document";
+        if (imageExtensions.includes(ext)) return `\n\n![${fileName}](${url})`;
+        return `\n\n[${fileName}](${url})`; // Clean url for docs
+      }).join("");
+
+      const localDisplayContent = (text || "Uploaded files.") + fileMarkdown;
+      
+      // Update the user message strictly (replaces the local blob urls with real ones)
+      setMessages(prev => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: 'user', content: localDisplayContent };
+        return updated;
+      });
+
+      // 4. SEND TO LLM BACKEND
+      const res = await sendCoachingMessage(targetSessionId, text, 'gpt-4o', uploadedUrls);
+      if (requestRef.current !== reqId) return; 
+      
+      if (!sessionId) refreshSessions();
+      
+      setMessages(prev => {
+        const newMsgs = [...prev, { role: 'assistant', content: res.content }];
+        setLastAssistantIndex(newMsgs.length - 1);
+        return newMsgs;
+      });
+      setIsTyping(true);
+
+    } catch (err: any) {
+      console.error(err);
+      if (requestRef.current === reqId) {
+        setMessages(prev => [
+          ...prev, 
+          { role: 'assistant', content: `**System Error:** ${err.message || 'Connection or File Upload Failed. Please try again.'}` }
+        ]);
+        setIsTyping(false);
+      }
+    } finally { 
+      if (requestRef.current === reqId) {
+        setLoading(false); 
+        setIsUploading(false);
+      }
+    }
   };
 
-  const submitPrompt = async (text: string, attachedFiles: File[] = [], deepSearch: boolean = false, webAccess: boolean = false) => {
-      if ((!text.trim() && attachedFiles.length === 0) || loading || isTyping) return;
-      const reqId = ++requestRef.current;
-      
-      setForceStop(false);
-      setLoading(true);
-  
-      try {
-        let targetSessionId = sessionId;
-        if (!targetSessionId) {
-          targetSessionId = await initializeSession(text || "Uploaded File");
-          setSessionId(targetSessionId);
-        }
-  
-        // 1. Upload directly to Python
-        let uploadedUrls: string[] = [];
-        if (attachedFiles.length > 0) {
-          uploadedUrls = await uploadFilesDirectly(attachedFiles, targetSessionId);
-        }
-  
-        // 2. Format UI
-        let localDisplayContent = text || "Uploaded files.";
-        const imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
-        const fileMarkdown = uploadedUrls.map((url) => {
-          const ext = url.split('.').pop()?.toLowerCase() || '';
-          const fileName = url.split('/').pop() || "Document";
-          if (imageExtensions.includes(ext)) return `\n\n![${fileName}](${url})`;
-          return `\n\n[${fileName}](attachment)`;
-        }).join("");
-  
-        localDisplayContent += fileMarkdown;
-        setMessages(prev => [...prev, { role: 'user', content: localDisplayContent }]);
-  
-        // 3. Send message to backend action
-        // Notice we pass targetSessionId, text, 'gpt-4o', and uploadedUrls
-        const res = await sendCoachingMessage(targetSessionId, text, 'gpt-4o', uploadedUrls);
-        if (requestRef.current !== reqId) return; 
-        
-        if (!sessionId) refreshSessions();
-        
-        setMessages(prev => {
-          const newMsgs = [...prev, { role: 'assistant', content: res.content }];
-          setLastAssistantIndex(newMsgs.length - 1);
-          return newMsgs;
-        });
-        setIsTyping(true);
-  
-      } catch (err: any) {
-        console.error(err);
-        if (requestRef.current === reqId) {
-          setMessages(prev => [
-            ...prev, 
-            { role: 'assistant', content: `**System Error:** ${err.message || 'Connection or File Upload Failed. Please try again.'}` }
-          ]);
-          setIsTyping(false);
-        }
-      } finally { 
-        if (requestRef.current === reqId) setLoading(false); 
-      }
-    };
-
   const handleEditSubmit = async (index: number, newText: string) => {
-      if (!newText.trim() || loading || isTyping) return;
-      const reqId = ++requestRef.current;
-      
-      setForceStop(false);
-      const truncatedMessages = messages.slice(0, index);
-      setMessages([...truncatedMessages, { role: 'user', content: newText }]);
-      setLoading(true);
-      
-      try {
-        // Pass empty array for fileUrls when editing
-        const res = await sendCoachingMessage(sessionId!, newText, 'gpt-4o', [], index);
-        if (requestRef.current !== reqId) return; 
-  
-        setMessages(prev => {
-          const newMsgs = [...truncatedMessages, { role: 'user', content: newText }, { role: 'assistant', content: res.content }];
-          setLastAssistantIndex(newMsgs.length - 1);
-          return newMsgs;
-        });
-        setIsTyping(true);
-      } catch (err) {
-        console.error(err);
-      } finally { 
-        if (requestRef.current === reqId) setLoading(false); 
-      }
-    };
+    if (!newText.trim() || loading || isTyping) return;
+    const reqId = ++requestRef.current;
+    
+    setForceStop(false);
+    const truncatedMessages = messages.slice(0, index);
+    setMessages([...truncatedMessages, { role: 'user', content: newText }]);
+    setLoading(true);
+    
+    try {
+      // Pass empty array for fileUrls when editing
+      const res = await sendCoachingMessage(sessionId!, newText, 'gpt-4o', [], index);
+      if (requestRef.current !== reqId) return; 
+
+      setMessages(prev => {
+        const newMsgs = [...truncatedMessages, { role: 'user', content: newText }, { role: 'assistant', content: res.content }];
+        setLastAssistantIndex(newMsgs.length - 1);
+        return newMsgs;
+      });
+      setIsTyping(true);
+    } catch (err) {
+      console.error(err);
+    } finally { 
+      if (requestRef.current === reqId) setLoading(false); 
+    }
+  };
 
   const handleRegenerate = async (index: number) => {
     if (loading || isTyping) return;
@@ -572,57 +626,94 @@ export default function AICoachingMentor() {
     
     strong: ({ children }: any) => <strong className="font-bold text-zinc-900 dark:text-white">{children}</strong>,
     hr: () => <hr className="my-10 border-zinc-200 dark:border-zinc-800/80" />,
-    
-    // Modern Image Renderer with Lightbox support
-    img: ({ src, alt }: any) => (
-      <div className="my-6 w-full relative rounded-2xl overflow-hidden group/img border border-zinc-200 dark:border-zinc-800 shadow-xl bg-zinc-50 dark:bg-[#0c0c0e]">
-        <img 
-          src={src} 
-          alt={alt || "Coaching Content"} 
-          className="w-full max-h-[500px] object-contain cursor-zoom-in transition-all duration-500 hover:scale-105"
-          onClick={() => typeof window !== 'undefined' && window.open(src, '_blank')}
-        />
-        {alt && alt !== "Uploaded Image" && (
-          <div className="absolute bottom-0 left-0 right-0 p-3 bg-black/40 backdrop-blur-md text-white text-[10px] sm:text-[11px] font-bold uppercase tracking-widest text-center">
-            {alt}
-          </div>
-        )}
-      </div>
-    ),
-
-    a: ({ node, href, children, ...props }: any) => (
-      <a 
-        href={href} 
-        target="_blank" 
-        rel="noopener noreferrer" 
-        className="inline text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline underline-offset-4 decoration-blue-500/30 font-semibold transition-colors break-words" 
-        {...props}
-      >
-        {children}
-        <span className="inline-flex items-center justify-center bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 text-[9px] font-google-sans uppercase font-bold px-1.5 py-0.5 rounded ml-1 align-middle whitespace-nowrap">
-          Source
-        </span>
-      </a>
-    ),
-
-    blockquote: ({ children }: any) => {
-      const text = extractTextFromNode(children).trim();
-      return (
-        <div className="w-full mt-6 mb-6 p-6 sm:p-8 bg-zinc-50 dark:bg-[#111113] border-l-4 border-blue-500 rounded-r-2xl shadow-sm">
-          <span className="leading-loose text-[16px] sm:text-[17px] font-outfit italic text-zinc-700 dark:text-zinc-400">{children}</span>
-        </div>
-      )
-    }
   };
 
   // --- 4. MESSAGE ITEM (Memoized) ---
-  const MessageItem = React.memo(({ m, index, isLast, loading, isTypingGlobal, isLocallyTyping, displayedContent, onRegenerate, onEditSubmit, isNewAssistant }: any) => {
+  const MessageItem = React.memo(({ m, index, isLast, loading, isUploading, isTypingGlobal, isLocallyTyping, displayedContent, onRegenerate, onEditSubmit, isNewAssistant }: any) => {
     const isUser = m.role === 'user';
     const [isEditing, setIsEditing] = useState(false);
     const [editValue, setEditValue] = useState(m.content || "");
 
-    // --- 🚀 Feedback System (LocalStorage Persistence) ---
     const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(null);
+    
+    // 🚀 DYNAMIC MARKDOWN INJECTORS (Reacts to `isUploading` state)
+    const memoizedComponents = useMemo(() => {
+      return {
+        ...MarkdownComponents,
+        
+        // DOCUMENT ATTACHMENT RENDERER
+        a: ({ node, href, children, ...props }: any) => {
+          if (href === 'attachment' || (typeof href === 'string' && (href.startsWith('http://res.cloudinary.com') || href.startsWith('https://res.cloudinary.com')))) {
+            // It is currently uploading if it still has the 'attachment' placeholder
+            const isCurrentlyUploading = isLast && isUser && isUploading && href === 'attachment';
+            return (
+              <a 
+                href={isCurrentlyUploading ? undefined : href}
+                target={isCurrentlyUploading ? undefined : "_blank"}
+                rel={isCurrentlyUploading ? undefined : "noopener noreferrer"}
+                className={`relative flex items-center gap-3 px-4 py-3 bg-zinc-100 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-800 rounded-xl w-max max-w-full my-3 shadow-sm select-none overflow-hidden group transition-colors no-underline ${isCurrentlyUploading ? 'cursor-wait' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800 cursor-pointer'}`}
+              >
+                <div className={`p-2 ${isCurrentlyUploading ? 'bg-blue-600 animate-pulse' : 'bg-blue-100 dark:bg-blue-900/30'} text-blue-600 dark:text-blue-400 rounded-lg shrink-0 transition-colors`}>
+                  {isCurrentlyUploading ? <Loader2 size={18} className="animate-spin text-white" /> : <FileText size={18} />}
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className={`text-[13px] font-bold ${isCurrentlyUploading ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-700 dark:text-zinc-300'} truncate pr-2 font-google-sans`}>
+                    {children}
+                  </span>
+                  {isCurrentlyUploading ? (
+                    <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mt-0.5 animate-pulse">Uploading to Infera...</span>
+                  ) : (
+                    <span className="text-[9px] font-bold text-blue-500/60 uppercase tracking-widest mt-0.5 group-hover:text-blue-600 transition-colors">Open Document</span>
+                  )}
+                </div>
+              </a>
+            );
+          }
+          return (
+            <a href={href} target="_blank" rel="noopener noreferrer" className="inline text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline underline-offset-4 decoration-blue-500/30 font-semibold transition-colors break-words" {...props}>
+              {children}
+              <span className="inline-flex items-center justify-center bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 text-[9px] font-google-sans uppercase font-bold px-1.5 py-0.5 rounded ml-1 align-middle whitespace-nowrap">Source</span>
+            </a>
+          );
+        },
+        
+        // IMAGE ATTACHMENT RENDERER
+        img: ({ src, alt }: any) => {
+          // If it's a blob URL, we are currently uploading it
+          const isCurrentlyUploading = isLast && isUser && isUploading && src?.startsWith('blob:');
+          return (
+            <div className={`my-6 w-full relative rounded-2xl overflow-hidden group/img border border-zinc-200 dark:border-zinc-800 shadow-xl bg-zinc-50 dark:bg-[#0c0c0e] ${isCurrentlyUploading ? 'opacity-70 animate-pulse' : ''}`}>
+              <img 
+                src={src} 
+                alt={alt || "Coaching Content"} 
+                className={`w-full max-h-[500px] object-contain transition-all duration-500 ${isCurrentlyUploading ? 'cursor-wait' : 'cursor-zoom-in hover:scale-105'}`}
+                onClick={() => { if (!isCurrentlyUploading && typeof window !== 'undefined') window.open(src, '_blank') }}
+              />
+              {isCurrentlyUploading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm gap-2">
+                  <Loader2 size={32} className="animate-spin text-white drop-shadow-md" />
+                  <span className="text-white font-google-sans text-[11px] font-bold uppercase tracking-widest drop-shadow-md">Uploading Image...</span>
+                </div>
+              )}
+              {alt && alt !== "Uploaded Image" && !isCurrentlyUploading && (
+                <div className="absolute bottom-0 left-0 right-0 p-3 bg-black/40 backdrop-blur-md text-white text-[10px] sm:text-[11px] font-bold uppercase tracking-widest text-center">
+                  {alt}
+                </div>
+              )}
+            </div>
+          );
+        },
+
+        blockquote: ({ children }: any) => {
+          return (
+            <div className="w-full mt-6 mb-6 p-6 sm:p-8 bg-zinc-50 dark:bg-[#111113] border-l-4 border-blue-500 rounded-r-2xl shadow-sm">
+              <span className="leading-loose text-[16px] sm:text-[17px] font-outfit italic text-zinc-700 dark:text-zinc-400">{children}</span>
+            </div>
+          )
+        }
+      };
+    }, [isLast, isUser, isUploading]);
+
     useEffect(() => {
       if (m.id) {
         const stored = localStorage.getItem(`feedback-${m.id}`);
@@ -685,7 +776,7 @@ export default function AICoachingMentor() {
               <ReactMarkdown 
                 remarkPlugins={[remarkGfm]} 
                 components={{
-                  ...MarkdownComponents, 
+                  ...memoizedComponents, 
                   p: ({children}: any) => <p className="font-outfit text-[15.5px] sm:text-[16px] m-0 font-medium tracking-wide whitespace-pre-wrap">{children}</p>
                 }}
               >
@@ -694,7 +785,7 @@ export default function AICoachingMentor() {
             ) : (
               <>
                 {contentToRender ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={memoizedComponents}>
                     {contentToRender}
                   </ReactMarkdown>
                 ) : (
@@ -729,13 +820,13 @@ export default function AICoachingMentor() {
           )}
           <CopyButton text={m.content || ""} />
           
-          {isUser && !loading && !isTypingGlobal && (
+          {isUser && !loading && !isTypingGlobal && !isUploading && (
             <button onClick={() => setIsEditing(true)} className="p-1.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Edit prompt">
               <PenLine size={15} />
             </button>
           )}
 
-          {!isUser && isLast && !loading && !isTypingGlobal && (
+          {!isUser && isLast && !loading && !isTypingGlobal && !isUploading && (
             <button onClick={() => onRegenerate(index)} className="p-1.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Regenerate response">
               <RefreshCw size={15} />
             </button>
@@ -842,7 +933,6 @@ export default function AICoachingMentor() {
   HistorySidebar.displayName = 'HistorySidebar';
 
   const hasMessages = messages.length > 0;
-  const isGenerating = loading || isTyping;
 
   return (
     <>
@@ -910,7 +1000,8 @@ export default function AICoachingMentor() {
                   <PromptBar 
                     onSubmit={submitPrompt} 
                     onStop={handleStop}
-                    isGenerating={isGenerating} 
+                    isGenerating={loading || isTyping} 
+                    isUploading={isUploading}
                     editTrigger={editTrigger} 
                     isCentered={true}
                   />
@@ -941,6 +1032,7 @@ export default function AICoachingMentor() {
                                 index={i}
                                 isLast={i === messages.length - 1}
                                 loading={loading}
+                                isUploading={isUploading}
                                 isTypingGlobal={isTyping}
                                 isLocallyTyping={isLocalTyping}
                                 displayedContent={displayed}
@@ -960,8 +1052,9 @@ export default function AICoachingMentor() {
                           key={`${m.role}-${i}`}
                           m={m}
                           index={i}
-                          isLast={m.role === 'assistant' && i === messages.length - 1}
+                          isLast={m.role === 'assistant' && i === messages.length - 1 || (m.role === 'user' && i === messages.length - 1)}
                           loading={loading}
+                          isUploading={isUploading}
                           isTypingGlobal={isTyping}
                           onRegenerate={handleRegenerate}
                           onEditSubmit={handleEditSubmit}
@@ -970,7 +1063,7 @@ export default function AICoachingMentor() {
                       );
                     })}
 
-                    {loading && (
+                    {loading && !isUploading && !isTyping && (
                       <div className="flex w-full items-start animate-in fade-in">
                         <div className="flex items-center gap-3 text-zinc-500 ml-2 bg-[#fafafa] dark:bg-[#0c0c0e] px-4 py-2.5 rounded-2xl border border-zinc-200 dark:border-zinc-800">
                           <Loader2 className="animate-spin text-zinc-400 dark:text-zinc-500" size={18} /> 
@@ -987,7 +1080,8 @@ export default function AICoachingMentor() {
                   <PromptBar 
                     onSubmit={submitPrompt} 
                     onStop={handleStop}
-                    isGenerating={isGenerating} 
+                    isGenerating={loading || isTyping} 
+                    isUploading={isUploading}
                     editTrigger={editTrigger} 
                     isCentered={false}
                   />

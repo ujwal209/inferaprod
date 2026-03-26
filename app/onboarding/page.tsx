@@ -247,12 +247,7 @@ export default function OnboardingPage() {
     const formData = new FormData(e.currentTarget)
     formData.append('avatar_url', avatarUrl)
 
-    // Safety check for multi-selects
-    if (!formData.get('skills') || !formData.get('core_interests')) {
-       setError("Please select at least one skill and interest.");
-       setLoading(false);
-       return;
-    }
+    // Optional fields logic handled by the backend
 
     const result = await completeOnboardingAction(formData)
     
@@ -534,14 +529,20 @@ export default function OnboardingPage() {
                     
                     <div className="grid grid-cols-1 gap-6">
                       <div>
-                        <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1">Current Skills</label>
+                        <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1 flex items-center justify-between">
+                          Current Skills
+                          <span className="text-[9px] font-bold text-blue-500/60 lowercase italic tracking-normal">(Optional)</span>
+                        </label>
                         <LiveApiMultiSelect 
                           name="skills" 
                           placeholder="Search and add skills (e.g. Python, React)..." 
                         />
                       </div>
                       <div>
-                        <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1">Core Interests</label>
+                        <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1 flex items-center justify-between">
+                          Core Interests
+                          <span className="text-[9px] font-bold text-blue-500/60 lowercase italic tracking-normal">(Optional)</span>
+                        </label>
                         <LiveApiMultiSelect 
                           name="core_interests" 
                           placeholder="Search and add interests (e.g. Distributed Systems)..." 
