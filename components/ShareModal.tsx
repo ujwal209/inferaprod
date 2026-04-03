@@ -1,51 +1,16 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { X, Copy, CheckCircle2, Globe, Shield, Loader2 } from 'lucide-react'
+import React, { useState } from 'react'
+import { X, Copy, CheckCircle2, Globe, Shield } from 'lucide-react'
 
 interface ShareModalProps {
   isOpen: boolean;
   onClose: () => void;
-  sessionId: string;
-  sessionTitle?: string;
-  onShare: () => Promise<any>;
+  shareUrl: string;
 }
 
-export const ShareModal = ({ isOpen, onClose, sessionId, sessionTitle, onShare }: ShareModalProps) => {
+export const ShareModal = ({ isOpen, onClose, shareUrl }: ShareModalProps) => {
   const [copied, setCopied] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [shareUrl, setShareUrl] = useState('');
-
-  useEffect(() => {
-    if (isOpen && sessionId) {
-      let mounted = true;
-      
-      const generateLink = async () => {
-        setIsLoading(true);
-        try {
-          // Call the server action to update the DB flag
-          await onShare();
-          
-          if (mounted) {
-            // Generate the correct dynamic route URL
-            const url = `${window.location.origin}/dashboard/chat/study/${sessionId}`;
-            setShareUrl(url);
-          }
-        } catch (error) {
-          console.error("Failed to share session", error);
-        } finally {
-          if (mounted) setIsLoading(false);
-        }
-      };
-
-      generateLink();
-
-      return () => { mounted = false; };
-    } else {
-      setShareUrl('');
-      setCopied(false);
-    }
-  }, [isOpen, sessionId, onShare]);
 
   if (!isOpen) return null;
 
@@ -70,11 +35,6 @@ export const ShareModal = ({ isOpen, onClose, sessionId, sessionTitle, onShare }
             </div>
             <div className="flex flex-col min-w-0">
               <h3 className="font-bold text-[16px] text-zinc-900 dark:text-white leading-tight">Share Workspace</h3>
-              {sessionTitle && (
-                <span className="text-[12px] font-medium text-zinc-500 truncate max-w-[200px]">
-                  {sessionTitle}
-                </span>
-              )}
             </div>
           </div>
           <button 
@@ -101,31 +61,22 @@ export const ShareModal = ({ isOpen, onClose, sessionId, sessionTitle, onShare }
           <div className="space-y-2">
             <p className="text-[13px] text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider">Workspace Link</p>
             <div className="relative group flex items-center">
-              {isLoading ? (
-                <div className="w-full pl-4 pr-12 py-3.5 bg-zinc-50 dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center gap-2 text-zinc-400">
-                  <Loader2 size={16} className="animate-spin" />
-                  <span className="text-[13px] font-medium">Generating link...</span>
-                </div>
-              ) : (
-                <>
-                  <input 
-                    readOnly 
-                    value={shareUrl} 
-                    className="w-full pl-4 pr-14 py-3.5 bg-zinc-50 dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 rounded-xl font-mono text-[12px] text-zinc-600 dark:text-zinc-300 focus:outline-none focus:border-blue-500 transition-colors"
-                  />
-                  <button 
-                    onClick={handleCopy}
-                    disabled={!shareUrl}
-                    className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all ${
-                      copied 
-                        ? 'bg-emerald-500 text-white' 
-                        : 'bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 border border-zinc-200 dark:border-zinc-700 shadow-sm'
-                    }`}
-                  >
-                    {copied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
-                  </button>
-                </>
-              )}
+              <input 
+                readOnly 
+                value={shareUrl} 
+                className="w-full pl-4 pr-14 py-3.5 bg-zinc-50 dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 rounded-xl font-mono text-[12px] text-zinc-600 dark:text-zinc-300 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <button 
+                onClick={handleCopy}
+                disabled={!shareUrl}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all ${
+                  copied 
+                    ? 'bg-emerald-500 text-white' 
+                    : 'bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 border border-zinc-200 dark:border-zinc-700 shadow-sm'
+                }`}
+              >
+                {copied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+              </button>
             </div>
           </div>
         </div>

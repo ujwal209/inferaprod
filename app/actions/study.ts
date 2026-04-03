@@ -188,23 +188,36 @@ export async function sendStudyMessage(
   
   const progressKeywords = ["show my progress", "my progress", "track my progress", "progress tracker", "how far", "mastery"];
   const wantsProgress = progressKeywords.some(kw => lastLower.includes(kw)) && !isMarkDone;
-
   const roadmapKeywords = ["roadmap", "syllabus", "study plan", "curriculum", "what's next"];
   const wantsRoadmap = roadmapKeywords.some(kw => lastLower.includes(kw));
 
   let injection = "\n\n[ORCHESTRATION CONTEXT]\n";
+  let activeUiTools: any[] = [];
+  let toolToForce: string | undefined = undefined;
+
+  // STRICT CONDITIONAL TOOL BINDING 
   if (isGreeting) {
     injection += "MODE: GREETING. Respond warmly and casually. Ask what topic they want to study. Do NOT use tools/widgets.";
   } else if (isSyllabusFirst || wantsRoadmap) {
     injection += "MODE: SYLLABUS. " + (wantsRoadmap ? "The user requested the roadmap. " : "This is the start of a new topic. ") + "You MUST provide a clear, comprehensive syllabus (roadmap) for the requested topic. Ask if they want to modify it or start with the first concept. 100% mastery will only be reached when this entire syllabus is covered.";
   } else if (wantsQuiz) {
-    injection += "MODE: QUIZ. Call the QuizWidget tool NOW. YOU MUST generate 10 questions. DO NOT RETURN AN EMPTY ARRAY [] FOR THE QUESTIONS FIELD! Provide real question objects. Do NOT provide any other text.";
+    injection += "MODE: QUIZ. You MUST call the QuizWidget tool NOW. Generate 10 distinct questions. DO NOT output standard text.";
+    const quizTool = uiTools.find(t => t.name === 'QuizWidget');
+    if (quizTool) {
+       activeUiTools.push(quizTool);
+       toolToForce = "QuizWidget";
+    }
   } else if (wantsProgress) {
-    injection += "MODE: PROGRESS. Call the ProgressWidget tool NOW. Calculate masteryPercentage strictly based on progress through the syllabus (completed / total * 100). DO NOT RETURN AN EMPTY ARRAY [] FOR completedConcepts. Provide actual strings. Do NOT provide any other text.";
+    injection += "MODE: PROGRESS. You MUST call the ProgressWidget tool NOW. Calculate masteryPercentage strictly based on progress through the syllabus. DO NOT output standard text.";
+    const progressTool = uiTools.find(t => t.name === 'ProgressWidget');
+    if (progressTool) {
+       activeUiTools.push(progressTool);
+       toolToForce = "ProgressWidget";
+    }
   } else if (isMarkDone) {
     injection += "MODE: NEXT TOPIC. The user finished a concept. Acknowledge and immediately move to the next item in the syllabus. Provide a focused technical tutorial. NO WIDGETS.";
   } else {
-    injection += "MODE: TEACHING. Provide technical teaching for the current concept using the formatting rules (Summary -> Body -> No final question). Focus on clarity and technical accuracy. Do NOT show widgets.";
+    injection += "MODE: TEACHING. Provide technical teaching for the current concept using the formatting rules. Focus on clarity and technical accuracy. Do NOT show widgets.";
   }
 
   const finalSystemPrompt = STUDY_PROMPT + injection;
@@ -251,20 +264,23 @@ export async function sendStudyMessage(
   let finalContent = "";
   
   try {
-    // 🚀 INTELLIGENT MODEL ROUTER - FORCED TO GEMINI AS REQUESTED
-    console.log("🧠 Routing to Gemini Pro 2.5 Flash (Mastery Engine)");
+    console.log("🧠 Routing to Gemini Pro (Mastery Engine)");
     const llmToUse = getGeminiModel();
+    let modelWithTools = llmToUse;
 
-    // 🚀 NATIVE TOOL BINDING
-    const modelWithTools = llmToUse.bindTools(uiTools);
-    
+    // 🚀 DYNAMIC BINDING: Only bind the tool if the orchestration layer caught the intent.
+    if (activeUiTools.length > 0 && toolToForce) {
+       modelWithTools = llmToUse.bindTools(activeUiTools, { tool_choice: toolToForce });
+    }
+
     let aiMessage: AIMessage;
     try {
       aiMessage = await modelWithTools.invoke(inputMessages);
     } catch (apiErr: any) {
-      console.warn("⚠️ Primary Model Failed (API Limit/Tool bind). Healing...");
+      console.warn("⚠️ Primary Model Failed (API Limit/Tool bind). Healing...", apiErr.message);
       const fallbackLlm = getGeminiModel();
-      aiMessage = await fallbackLlm.bindTools(uiTools).invoke(inputMessages);
+      // Fallback without forcing tool_choice just in case that caused the crash
+      aiMessage = await fallbackLlm.bindTools(activeUiTools.length > 0 ? activeUiTools : []).invoke(inputMessages);
     }
 
     finalContent = typeof aiMessage.content === 'string' ? aiMessage.content : "";
@@ -280,6 +296,7 @@ export async function sendStudyMessage(
        try { finalContent = JSON.stringify(aiMessage.content); } catch (e) {}
     }
 
+    // Fallback regex if it dumps raw JSON text
     if (!aiMessage.tool_calls?.length && finalContent.includes('"component": "QuizWidget"')) {
         const match = finalContent.match(/```json\n([\s\S]*?)```/);
         if (match) {
@@ -293,7 +310,6 @@ export async function sendStudyMessage(
   }
 
   try {
-    // Save Assistant response to DB
     await supabaseAdmin.from('study_messages').insert({ session_id: sessionId, role: 'assistant', content: finalContent });
     await supabaseAdmin.from('study_sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
   } catch (dbErr) {
@@ -302,7 +318,6 @@ export async function sendStudyMessage(
   
   return { sessionId: sessionId, content: finalContent };
 }
-
 
 // ==========================================
 // QUIZ & PROGRESS TRACKING DB OPS
@@ -369,7 +384,6 @@ export async function getQuizHistory() {
   return data || []; 
 }
 
-// 🚀 Gets the existing quiz state so the user can resume if they refresh
 export async function getQuizState(sessionId: string, topic: string) {
   const supabaseAuth = await createServerClient();
   const { data: { user } } = await supabaseAuth.auth.getUser();
@@ -382,14 +396,13 @@ export async function getQuizState(sessionId: string, topic: string) {
     .eq('topic', topic)
     .single();
 
-  if (error && error.code !== 'PGRST116') { // PGRST116 is "Row not found"
+  if (error && error.code !== 'PGRST116') { 
     console.error("Error fetching quiz state:", error);
     return null;
   }
   return data;
 }
 
-// 🚀 Upserts the quiz state (fires on every click and on final submit)
 export async function syncQuizState(
   sessionId: string, 
   topic: string, 
