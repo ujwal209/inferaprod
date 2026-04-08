@@ -208,12 +208,14 @@ export async function sendCoachingMessage(
       let lastError: any;
       let activeTier = targetTier;
       
+      // 🚀 STRICT FALLBACK LOGIC: Gemini is King, Groq is the Backup
       const fallbackSequence: Record<ModelTier, ModelTier> = {
-          'groq': 'gemini-2.5-flash',
           'gemini-2.5-flash': 'groq',
-          'gemini-2.5-pro': 'gemini-2.5-flash'
+          'gemini-2.5-pro': 'gemini-2.5-flash',
+          'groq': 'gemini-2.5-flash'
       };
 
+      // Force Gemini exclusively if there's a document (Groq struggles heavily with raw PDF parsing)
       if (hasPdfOrDoc) {
           fallbackSequence['gemini-2.5-flash'] = 'gemini-2.5-flash'; 
           fallbackSequence['groq'] = 'gemini-2.5-flash'; 
@@ -231,6 +233,7 @@ export async function sendCoachingMessage(
               activeQueue = geminiQueue;
           }
 
+          // Groq rejects array formatting for AI messages, fix them before invoking
           const formattedMsgs = msgs.map(msg => {
               if (activeTier === 'groq' && msg._getType() === 'ai') {
                   let textContent = msg.content;
@@ -278,11 +281,9 @@ export async function sendCoachingMessage(
 
   for (const url of fileUrls) {
     const urlLower = url.toLowerCase();
-    // 🚀 THE FIX: Strip query parameters BEFORE checking the extension
     const ext = urlLower.split('.').pop()?.split('?')[0] || "";
     const fileName = url.split('/').pop()?.split('?')[0] || "file";
 
-    // STRICT CHECKING: If it's a doc extension, it is NEVER an image.
     const isDoc = docExtensions.includes(`.${ext}`);
     const isImage = !isDoc && (imageExtensions.includes(`.${ext}`) || urlLower.includes('/image/upload'));
 
@@ -354,7 +355,8 @@ export async function sendCoachingMessage(
   const systemMessage = new SystemMessage(strictSystemPrompt);
 
   try {
-    let initialTier: ModelTier = (hasPdfOrDoc || langchainHistory.length > 5) ? 'gemini-2.5-flash' : 'groq'; 
+    // 🚀 THE FIX: Force Gemini 2.5 Flash as the absolute primary tier unless it's an image.
+    let initialTier: ModelTier = hasImage ? 'groq' : 'gemini-2.5-flash'; 
     const canUseTools = !hasImage && !hasPdfOrDoc;
     inputMessages = [systemMessage, ...inputMessages];
     
