@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/utils/supabase/server";
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 
-import { getGeminiModel } from './agent/providers';
+import { getGeminiModel, getGroqModel, geminiQueue, groqQueue } from './agent/providers';
 import { uiTools } from './agent/tools';
 import { STUDY_PROMPT } from './agent/prompts';
 
@@ -12,6 +12,8 @@ const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!, 
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+type ModelTier = 'groq' | 'gemini-2.5-flash' | 'gemini-2.5-pro';
 
 // ==========================================
 // SESSION MANAGEMENT
@@ -70,6 +72,10 @@ export async function renameStudySession(id: string, title: string) {
 
 export async function archiveStudySession(id: string) {
   await supabaseAdmin.from('study_sessions').update({ is_archived: true }).eq('id', id);
+}
+
+export async function unarchiveStudySession(id: string) {
+    await supabaseAdmin.from('study_sessions').update({ is_archived: false }).eq('id', id);
 }
 
 export async function shareStudySession(id: string) {
@@ -137,7 +143,7 @@ export async function duplicateStudySession(sessionId: string) {
 }
 
 // ==========================================
-// 🚀 NATIVE LANGGRAPH AGENT ROUTER
+// 🚀 ENHANCED STUDY AGENT (WITH MULTI-MODEL FALLBACK)
 // ==========================================
 
 export async function sendStudyMessage(
@@ -153,7 +159,7 @@ export async function sendStudyMessage(
 
   const { data: pastMessages } = await supabaseAdmin
     .from('study_messages')
-    .select('role, content')
+    .select('id, role, content')
     .eq('session_id', sessionId)
     .order('created_at', { ascending: true });
     
@@ -165,7 +171,6 @@ export async function sendStudyMessage(
     dbHistory = dbHistory.slice(0, truncateIndex);
   }
 
-  // 🚀 Convert History to LangChain Core Messages
   const langchainHistory: BaseMessage[] = dbHistory.slice(-10).map(m => {
     let text = m.content;
     if (typeof text === 'string' && text.length > 8000) {
@@ -174,147 +179,206 @@ export async function sendStudyMessage(
     return m.role === 'user' ? new HumanMessage(text) : new AIMessage(text);
   });
 
-  // 🚀 Orchestration Context Engine
   const userMsgCount = dbHistory.filter(m => m.role === 'user').length + 1;
   const lastLower = content.trim().toLowerCase();
   
+  // Logic for Orchestration
   const greetings = ["hi", "hello", "hey", "howdy", "sup", "what's up", "good morning", "good evening"];
   const isGreeting = greetings.some(g => lastLower.startsWith(g)) && lastLower.length < 30;
   const isSyllabusFirst = userMsgCount === 1 && !isGreeting;
   const isMarkDone = content.includes("I've understood this, move to next");
-  
-  const quizKeywords = ["quiz me", "test me", "give me a quiz", "take a quiz", "knowledge check", "test my knowledge", "quiz"];
-  const wantsQuiz = quizKeywords.some(kw => lastLower.includes(kw));
-  
-  const progressKeywords = ["show my progress", "my progress", "track my progress", "progress tracker", "how far", "mastery"];
-  const wantsProgress = progressKeywords.some(kw => lastLower.includes(kw)) && !isMarkDone;
-  const roadmapKeywords = ["roadmap", "syllabus", "study plan", "curriculum", "what's next"];
-  const wantsRoadmap = roadmapKeywords.some(kw => lastLower.includes(kw));
+  const wantsQuiz = ["quiz me", "test me", "give me a quiz", "quiz"].some(kw => lastLower.includes(kw));
+  const wantsProgress = ["show my progress", "my progress", "track my progress"].some(kw => lastLower.includes(kw)) && !isMarkDone;
+  const wantsRoadmap = ["roadmap", "syllabus", "study plan"].some(kw => lastLower.includes(kw));
 
   let injection = "\n\n[ORCHESTRATION CONTEXT]\n";
   let activeUiTools: any[] = [];
   let toolToForce: string | undefined = undefined;
 
-  // STRICT CONDITIONAL TOOL BINDING 
   if (isGreeting) {
-    injection += "MODE: GREETING. Respond warmly and casually. Ask what topic they want to study. Do NOT use tools/widgets.";
+    injection += "MODE: GREETING. Respond warmly. Ask what topic they want to study. Do NOT use tools/widgets.";
   } else if (isSyllabusFirst || wantsRoadmap) {
-    injection += "MODE: SYLLABUS. " + (wantsRoadmap ? "The user requested the roadmap. " : "This is the start of a new topic. ") + "You MUST provide a clear, comprehensive syllabus (roadmap) for the requested topic. Ask if they want to modify it or start with the first concept. 100% mastery will only be reached when this entire syllabus is covered.";
+    injection += "MODE: SYLLABUS. Provide a clear study roadmap. 100% mastery requires covering all concepts.";
   } else if (wantsQuiz) {
-    injection += "MODE: QUIZ. You MUST call the QuizWidget tool NOW. Generate 10 distinct questions. DO NOT output standard text.";
+    injection += "MODE: QUIZ. Call QuizWidget tool now.";
     const quizTool = uiTools.find(t => t.name === 'QuizWidget');
-    if (quizTool) {
-       activeUiTools.push(quizTool);
-       toolToForce = "QuizWidget";
-    }
+    if (quizTool) { activeUiTools.push(quizTool); toolToForce = "QuizWidget"; }
   } else if (wantsProgress) {
-    injection += "MODE: PROGRESS. You MUST call the ProgressWidget tool NOW. Calculate masteryPercentage strictly based on progress through the syllabus. DO NOT output standard text.";
+    injection += "MODE: PROGRESS. Call ProgressWidget tool.";
     const progressTool = uiTools.find(t => t.name === 'ProgressWidget');
-    if (progressTool) {
-       activeUiTools.push(progressTool);
-       toolToForce = "ProgressWidget";
-    }
+    if (progressTool) { activeUiTools.push(progressTool); toolToForce = "ProgressWidget"; }
   } else if (isMarkDone) {
-    injection += "MODE: NEXT TOPIC. The user finished a concept. Acknowledge and immediately move to the next item in the syllabus. Provide a focused technical tutorial. NO WIDGETS.";
-  } else {
-    injection += "MODE: TEACHING. Provide technical teaching for the current concept using the formatting rules. Focus on clarity and technical accuracy. Do NOT show widgets.";
+    injection += "MODE: NEXT TOPIC. User finished a concept. Move to next syllabus item.";
   }
 
   const finalSystemPrompt = STUDY_PROMPT + injection;
 
-  // File UI Markdown & Multimodal Preparation
-  let hasPdf = false;
+  // 🚀 MULTI-MODAL FILE PROCESSING
+  let hasPdfOrDoc = false;
   let hasImage = false;
-  const currentMessageParts: any[] = [{ type: 'text', text: content }];
-  const imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
   let fileMarkdown = "";
+  let currentMessageParts: any[] = [{ type: 'text', text: content }];
+  let docContextBuffer = "";
+
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+  const docExtensions = ['.pdf', '.txt', '.csv', '.doc', '.docx'];
 
   for (const url of fileUrls) {
-    const ext = url.split('.').pop()?.toLowerCase() || '';
-    const fileName = url.split('/').pop() || "Document";
-    
-    if (ext === 'pdf') {
-      hasPdf = true;
-      fileMarkdown += `\n\n[📁 Attached File: ${fileName}](${url})`;
-      try {
-        const response = await fetch(url);
-        const arrayBuffer = await response.arrayBuffer();
-        currentMessageParts.push({ 
-          type: 'media', 
-          mimeType: 'application/pdf',
-          data: Buffer.from(arrayBuffer).toString('base64') 
-        });
-      } catch (e) { 
-        console.error("PDF Fetch Error:", e); 
-      }
-    } else if (imageExtensions.includes(ext)) {
+    const urlLower = url.toLowerCase();
+    const ext = `.${urlLower.split('.').pop()?.split('?')[0]}` || "";
+    const fileName = url.split('/').pop()?.split('?')[0] || "document";
+
+    if (imageExtensions.includes(ext)) {
       hasImage = true;
       fileMarkdown += `\n\n![${fileName}](${url})`;
       currentMessageParts.push({ type: 'image_url', image_url: { url } });
+      console.log(`🖼️ [IMAGE DETECTED] Prepared for Llama Vision / Groq...`);
+    } else if (docExtensions.includes(ext)) {
+      hasPdfOrDoc = true;
+      fileMarkdown += `\n\n[📁 Attached Study Material: ${fileName}](${url})`;
+      try {
+        const arrayBuffer = await fetch(url).then(r => r.arrayBuffer());
+        const b64Data = Buffer.from(arrayBuffer).toString('base64');
+        
+        let mimeType = 'application/pdf';
+        if (ext === '.txt') mimeType = 'text/plain';
+        if (ext === '.csv') mimeType = 'text/csv';
+
+        currentMessageParts.push({ type: 'media', mimeType, data: b64Data });
+
+        // 🧠 STRICT DOCUMENT EXTRACTION VIA GEMINI 2.5 FLASH
+        console.log(`📄 [EXTRACTING DOCUMENT] Strictly via Gemini 2.5 Flash...`);
+        const extractModel = getGeminiModel('gemini-2.5-flash' as any);
+        const extractRes = await extractModel.invoke([
+            new HumanMessage({
+                content: [
+                    { type: "image_url", image_url: `data:${mimeType};base64,${b64Data}` },
+                    { type: 'text', text: "Extract and summarize all the study-relevant text, data, and key concepts from this document exactly as it appears." }
+                ]
+            })
+        ]) as AIMessage;
+        
+        const extractedText = typeof extractRes.content === 'string' ? extractRes.content : "";
+        docContextBuffer += `\n\n[STUDY MATERIAL CONTEXT FOR '${fileName}']:\n${extractedText}\n[END OF DOCUMENT CONTEXT]\n`;
+      } catch (e) {
+        console.error("Extraction Failed:", e);
+        docContextBuffer += `\n\n[SYSTEM NOTE: Attempted to process '${fileName}' but extraction failed.]\n`;
+      }
     }
   }
 
-  const fullUserContent = content + fileMarkdown;
+  const fullUserContent = content + docContextBuffer + fileMarkdown;
   await supabaseAdmin.from('study_messages').insert({ session_id: sessionId, role: 'user', content: fullUserContent });
   
-  const systemMessage = new SystemMessage(finalSystemPrompt);
-  const currentUserMessage = new HumanMessage({ content: currentMessageParts });
-  const inputMessages = [systemMessage, ...langchainHistory, currentUserMessage];
+  const inputMessages = [
+    new SystemMessage(finalSystemPrompt),
+    ...langchainHistory,
+    new HumanMessage({ content: currentMessageParts })
+  ];
+
+  // 🛡️ INVOKER WITH MULTI-TIER ROTATION AND GROQ FALLBACK
+  const safeInvoke = async (msgs: BaseMessage[], tools: any[], forceToolName?: string, targetTier: ModelTier = 'groq') => {
+    let attempts = 0;
+    let lastError: any;
+    let activeTier = targetTier;
+
+    // The rotation map
+    const fallbackSequence: Record<ModelTier, ModelTier> = {
+      'groq': 'gemini-2.5-flash',
+      'gemini-2.5-flash': 'groq',
+      'gemini-2.5-pro': 'gemini-2.5-flash'
+    };
+
+    // If PDF/Doc is present, we cannot use Groq for the main generation easily, force Gemini
+    if (hasPdfOrDoc) {
+      fallbackSequence['gemini-2.5-flash'] = 'gemini-2.5-flash';
+      fallbackSequence['groq'] = 'gemini-2.5-flash';
+      activeTier = 'gemini-2.5-flash';
+    }
+
+    while (attempts < 4) {
+      let tempModel;
+      let activeQueue;
+
+      if (activeTier === 'groq') {
+        tempModel = getGroqModel(hasImage, false); 
+        activeQueue = groqQueue;
+      } else {
+        tempModel = getGeminiModel(activeTier as any);
+        activeQueue = geminiQueue;
+      }
+
+      // Format messages correctly for Groq (It gets upset by arrays in AI messages)
+      const formattedMsgs = msgs.map(msg => {
+        if (activeTier === 'groq' && msg._getType() === 'ai') {
+          let textContent = msg.content;
+          if (Array.isArray(textContent)) {
+            textContent = textContent.map((c: any) => c.text || '').join('');
+          }
+          return new AIMessage({
+            content: typeof textContent === 'string' ? textContent : String(textContent),
+            tool_calls: (msg as AIMessage).tool_calls,
+            invalid_tool_calls: (msg as AIMessage).invalid_tool_calls
+          });
+        }
+        return msg;
+      });
+
+      try {
+        let runnable = tools.length > 0 ? (forceToolName ? tempModel.bindTools(tools, { tool_choice: forceToolName }) : tempModel.bindTools(tools)) : tempModel;
+        return await runnable.invoke(formattedMsgs);
+      } catch (e: any) {
+        lastError = e;
+        const errorStr = String(e) + (e?.message || "") + JSON.stringify(e);
+
+        if (errorStr.includes('429') || errorStr.includes('503') || errorStr.includes('Unavailable') || errorStr.includes('quota') || errorStr.includes('rate_limit') || errorStr.includes('404')) {
+          const failedKey = (tempModel as any)._inferaKey;
+          const isServerOverload = errorStr.includes('503') || errorStr.includes('Unavailable');
+
+          console.log(`⚠️ Network Drop [${isServerOverload ? '503 Overload' : '429 Rate Limit'}] on ${activeTier}. Penalizing key ...${failedKey?.slice(-4) || 'unknown'}`);
+          
+          activeQueue.reportFailure(failedKey, 60); 
+          activeTier = fallbackSequence[activeTier];
+          attempts++;
+
+          if (isServerOverload) {
+            console.log("⏳ Pausing 1.5s for server recovery...");
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+        } else if (errorStr.includes('tool_choice') || errorStr.includes('invalid_request')) {
+          console.log("⚠️ Tool forcing failed, falling back to standard dynamic binding...");
+          forceToolName = undefined;
+          attempts++;
+        } else {
+          throw e; 
+        }
+      }
+    }
+    throw lastError || new Error("API Connection Failed after multiple attempts.");
+  };
 
   let finalContent = "";
-  
   try {
-    console.log("🧠 Routing to Gemini Pro (Mastery Engine)");
-    const llmToUse = getGeminiModel();
-    let modelWithTools = llmToUse;
-
-    // 🚀 DYNAMIC BINDING: Only bind the tool if the orchestration layer caught the intent.
-    if (activeUiTools.length > 0 && toolToForce) {
-       modelWithTools = llmToUse.bindTools(activeUiTools, { tool_choice: toolToForce });
-    }
-
-    let aiMessage: AIMessage;
-    try {
-      aiMessage = await modelWithTools.invoke(inputMessages);
-    } catch (apiErr: any) {
-      console.warn("⚠️ Primary Model Failed (API Limit/Tool bind). Healing...", apiErr.message);
-      const fallbackLlm = getGeminiModel();
-      // Fallback without forcing tool_choice just in case that caused the crash
-      aiMessage = await fallbackLlm.bindTools(activeUiTools.length > 0 ? activeUiTools : []).invoke(inputMessages);
-    }
-
+    // Default to Groq for speed unless there's a document
+    const initialTier: ModelTier = hasPdfOrDoc ? 'gemini-2.5-flash' : 'groq';
+    
+    const aiMessage = await safeInvoke(inputMessages, activeUiTools, toolToForce, initialTier) as AIMessage;
     finalContent = typeof aiMessage.content === 'string' ? aiMessage.content : "";
 
-    // Safely extract UI tool calls to append as chameleon blocks
+    // Parse chameleon widgets
     if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
       for (const call of aiMessage.tool_calls) {
-        if (call.name === 'QuizWidget' || call.name === 'ProgressWidget') {
+        if (['QuizWidget', 'ProgressWidget'].includes(call.name)) {
           finalContent += `\n\n\`\`\`json?chameleon\n${JSON.stringify({ component: call.name, props: call.args }, null, 2)}\n\`\`\`\n`;
         }
       }
-    } else if (typeof aiMessage.content !== 'string') {
-       try { finalContent = JSON.stringify(aiMessage.content); } catch (e) {}
     }
-
-    // Fallback regex if it dumps raw JSON text
-    if (!aiMessage.tool_calls?.length && finalContent.includes('"component": "QuizWidget"')) {
-        const match = finalContent.match(/```json\n([\s\S]*?)```/);
-        if (match) {
-            finalContent = finalContent.replace('```json\n', '```json?chameleon\n');
-        }
-    }
-
   } catch (error: any) {
-    console.error("Agent Engine Error:", error);
-    finalContent = `### ⨯ Connection Disrupted\nFailed to reach the AI Engine natively. \n**Details:** ${error.message}`;
+    finalContent = `### ⨯ Connection Disrupted\nFailed to reach the Study Engine. \n**Details:** ${error.message}`;
   }
 
-  try {
-    await supabaseAdmin.from('study_messages').insert({ session_id: sessionId, role: 'assistant', content: finalContent });
-    await supabaseAdmin.from('study_sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
-  } catch (dbErr) {
-    console.error("Failed to save study message to DB:", dbErr);
-  }
+  await supabaseAdmin.from('study_messages').insert({ session_id: sessionId, role: 'assistant', content: finalContent });
+  await supabaseAdmin.from('study_sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
   
   return { sessionId: sessionId, content: finalContent };
 }

@@ -1,11 +1,11 @@
 'use client'
 
-import React, { useState, useRef, useEffect, useCallback, use } from 'react'
+import React, { useState, useRef, useEffect, useCallback, use, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { 
   Loader2, X, ThumbsUp, ThumbsDown, 
-  RefreshCw, CheckCircle2, PenLine 
+  RefreshCw, CheckCircle2, PenLine, FileText 
 } from 'lucide-react'
 
 // 🚀 STUDY COMPONENTS
@@ -30,7 +30,6 @@ import { createClient } from '@/utils/supabase/client'
 const supabase = createClient();
 
 export default function ActiveStudySessionPage({ params }: { params: Promise<{ id: string }> }) {
-  // Unwrap params using React.use() for Next.js 15+ compatibility
   const resolvedParams = use(params);
   const sessionId = resolvedParams.id;
   const router = useRouter();
@@ -38,7 +37,7 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
   // 🚀 STATE
   const [messages, setMessages] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true); // Default true since we are loading an ID
+  const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [forceStop, setForceStop] = useState(false);
@@ -60,10 +59,17 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
   const requestRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // 🚀 THE FIX: Use a Ref instead of State for scrolling to prevent re-renders!
+  const isUserScrolledUp = useRef(false);
+
   // 🚀 FETCH SESSIONS
   const fetchSessions = useCallback(async () => {
-    const data = await getStudySessions();
-    setSessions(data);
+    try {
+      const data = await getStudySessions();
+      setSessions(data || []);
+    } catch (e) {
+      console.error(e);
+    }
   }, []);
 
   useEffect(() => {
@@ -79,11 +85,11 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
         getStudyMessages(id),
         getStudySessionById(id)
       ]);
-      setMessages(msgs);
+      setMessages(msgs || []);
       setCurrentSession(sessionData);
     } catch (e) {
       toast.error("Failed to load session data.");
-      router.push('/dashboard/chat/study/new'); // Fallback route
+      router.push('/dashboard/chat/study');
     }
     setLoading(false);
     setMobileMenuOpen(false);
@@ -95,16 +101,23 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
     }
   }, [sessionId, loadSession]);
 
-  // 🚀 AUTO-SCROLL
+  // 🚀 SILENT SCROLL HANDLER (No React state changes = zero lag)
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+    isUserScrolledUp.current = !isNearBottom;
+  }, []);
+
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && !isUserScrolledUp.current && !isTyping && !isUploading) {
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
   }, [messages, loading, isTyping, isUploading]);
 
   // 🚀 SESSION HANDLERS
   const handleCreateNew = () => {
-    router.push('/dashboard/chat/study/new'); // Must create a new landing page route
+    router.push('/dashboard/chat/study'); 
   };
 
   const handleDelete = async (e: any, id: string) => {
@@ -164,7 +177,6 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
     const reqId = ++requestRef.current;
     
     try {
-      // 1. Show User Message Immediately
       const previewFiles = files.map(f => {
         const ext = f.name.split('.').pop()?.toLowerCase() || '';
         if (['png','jpg','jpeg','webp','gif'].includes(ext)) return `\n\n![${f.name}](${URL.createObjectURL(f)})`;
@@ -172,8 +184,8 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
       }).join("");
       
       setMessages(prev => [...prev, { role: 'user', content: text + previewFiles }]);
+      isUserScrolledUp.current = false; // Force auto-scroll to bottom
 
-      // 2. Upload Files
       let uploadedUrls: string[] = [];
       if (files.length > 0) {
         setIsUploading(true);
@@ -193,7 +205,6 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
       setIsTyping(true);
       setUploadedFiles([]);
 
-      // 3. Send to AI
       const res = await sendStudyMessage(sessionId, text, uploadedUrls);
       if (requestRef.current !== reqId) return;
 
@@ -209,6 +220,10 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
       setIsUploading(false);
     }
   };
+
+  const memoizedAnswerSubmit = useCallback((txt: string) => {
+    handleChatSubmit(txt);
+  }, [sessionId, loading, isTyping, isUploading]);
 
   const onStop = () => {
     if (abortControllerRef.current) abortControllerRef.current.abort();
@@ -261,16 +276,164 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
     toast.success("Concept marked as complete. Generating next steps...");
   };
 
-  // 🚀 UI COMPONENT MAPPING
+  // 🚀 USER MESSAGE RENDERER (Parses Images, Links, & Removes Hidden Prompts)
+  const renderUserMessage = (rawText: string) => {
+    // 1. Hide the extracted document context and orchestration blocks from UI
+    let cleanText = rawText.replace(/\[STUDY MATERIAL CONTEXT FOR .*?\][\s\S]*?\[END OF DOCUMENT CONTEXT\]/g, '');
+    cleanText = cleanText.replace(/\[AUTO-EXTRACTED DOCUMENT CONTEXT FOR .*?\][\s\S]*?\[END OF DOCUMENT CONTEXT\]/g, '');
+    cleanText = cleanText.replace(/\[ORCHESTRATION CONTEXT\][\s\S]*/, '');
+    
+    // 2. Split by Markdown Image ![alt](url) OR File [alt](url)
+    const regex = /(!?\[[^\]]*\]\([^)]+\))/g;
+    const parts = cleanText.split(regex);
+    
+    return (
+      <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words font-inter">
+        {parts.map((part, i) => {
+          const trimmedPart = part.trim();
+
+          // A. Detect Image Markdown
+          const imgMatch = trimmedPart.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+          if (imgMatch) {
+            return (
+              <div key={i} className="my-3 flex flex-col items-start">
+                <img 
+                  src={imgMatch[2]} 
+                  alt={imgMatch[1]} 
+                  className="w-full max-w-full sm:max-w-md h-auto rounded-lg border border-black/10 dark:border-white/10 shadow-sm object-contain bg-white dark:bg-zinc-900" 
+                  loading="lazy"
+                />
+              </div>
+            );
+          }
+          
+          // B. Detect File/Document Markdown
+          const fileMatch = trimmedPart.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
+          if (fileMatch) {
+            let displayName = fileMatch[1];
+            const fileUrl = fileMatch[2];
+            const isOptimistic = fileUrl === 'attachment';
+
+            if (!isOptimistic && (displayName.includes('Attached File') || displayName.includes('Attached Document') || displayName.includes('Attached Study Material'))) {
+                const urlParts = fileUrl.split('/');
+                const lastSegment = urlParts[urlParts.length - 1].split('?')[0];
+                if (lastSegment && lastSegment.includes('.')) {
+                    displayName = lastSegment;
+                }
+            }
+
+            return (
+              <div key={i} className="my-2">
+                <a 
+                  href={isOptimistic ? '#' : fileUrl} 
+                  target={isOptimistic ? '_self' : '_blank'} 
+                  rel="noopener noreferrer" 
+                  onClick={(e) => isOptimistic && e.preventDefault()}
+                  className={`inline-flex items-center gap-2 px-3 py-2 bg-black/5 dark:bg-white/10 border border-black/10 dark:border-white/10 rounded-lg text-sm font-medium transition-colors break-all ${isOptimistic ? 'opacity-70 cursor-wait' : 'hover:bg-black/10 dark:hover:bg-white/20'}`}
+                >
+                  <FileText size={16} className="text-white dark:text-zinc-900 shrink-0" /> 
+                  <span className="truncate">{displayName}</span>
+                </a>
+              </div>
+            );
+          }
+          
+          // C. Regular Text
+          return <span key={i}>{part}</span>;
+        })}
+      </div>
+    );
+  };
+
   const currentTitle = currentSession?.title || "Study Session";
   const isGuest = currentSession && currentUserId && currentSession.user_id !== currentUserId;
 
+  // 🚀 THE FIX: Memoize the entire message list so it ignores external state changes
+  const renderedMessages = useMemo(() => {
+    return messages.map((m, idx) => (
+      <div 
+        key={idx} 
+        className={`flex flex-col gap-2 w-full animate-in fade-in duration-300 min-w-0 ${m.role === 'user' ? 'items-end' : 'items-start'}`}
+      >
+        <div className={`
+          w-fit max-w-[95%] md:max-w-[85%] lg:max-w-[75%] min-w-0 overflow-hidden
+          ${m.role === 'user' 
+            ? 'px-4 py-3.5 rounded-xl shadow-sm border bg-zinc-900 border-zinc-900 text-white dark:bg-zinc-100 dark:border-zinc-100 dark:text-zinc-900' 
+            : 'w-full text-zinc-900 dark:text-zinc-100'
+          }
+        `}>
+          {editingMessageId === idx ? (
+            <div className="flex flex-col gap-3 w-full sm:w-[400px] max-w-full">
+               <textarea 
+                 className="w-full bg-black/10 dark:bg-white/10 border border-black/20 dark:border-white/20 rounded-lg p-3 text-sm outline-none resize-y min-h-[100px] text-white dark:text-zinc-900 focus:border-blue-500 transition-colors"
+                 autoFocus
+                 value={editMessageValue}
+                 onChange={(e) => setEditMessageValue(e.target.value)}
+                 placeholder="Edit your message..."
+               />
+               <div className="flex items-center justify-end gap-2">
+                 <button onClick={() => setEditingMessageId(null)} className="px-3 py-1.5 text-xs font-medium rounded-md hover:bg-black/10 dark:hover:bg-white/10 transition-colors">Cancel</button>
+                 <button onClick={() => { handleEditSubmit(idx, editMessageValue); setEditingMessageId(null); }} className="px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors border border-blue-700">Save & Resend</button>
+               </div>
+            </div>
+          ) : (
+            m.role === 'user' ? (
+              renderUserMessage(m.content)
+            ) : (
+              <div className="w-full min-w-0">
+                <StudyMarkdown 
+                  content={m.content} 
+                  role={m.role} 
+                  isLast={idx === messages.length - 1}
+                  isTyping={isTyping && idx === messages.length - 1}
+                  sessionId={sessionId || undefined}
+                  onAnswerSubmitted={memoizedAnswerSubmit}
+                  isCompleted={currentSession?.status === 'completed'}
+                />
+              </div>
+            )
+          )}
+        </div>
+
+        {/* Actions under message */}
+        {!editingMessageId && (
+          <div className={`flex items-center gap-1 text-zinc-400 mt-1 px-1 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            {m.role === 'assistant' ? (
+              <>
+                <button className="p-1.5 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors"><ThumbsUp size={14} /></button>
+                <button className="p-1.5 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors"><ThumbsDown size={14} /></button>
+                <div className="w-[1px] h-3 bg-zinc-200 dark:bg-zinc-800 mx-1" />
+                <button onClick={() => handleRegenerate(idx)} className="p-1.5 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors" title="Regenerate"><RefreshCw size={14} /></button>
+                <button onClick={handleMarkAsDone} className="p-1.5 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-md transition-colors" title="Mark as complete"><CheckCircle2 size={14} /></button>
+                <CopyButton text={m.content} />
+              </>
+            ) : (
+              <>
+                <button onClick={() => { setEditingMessageId(idx); setEditMessageValue(m.content); }} className="p-1.5 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors" title="Edit message"><PenLine size={14} /></button>
+                <CopyButton text={m.content} />
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    ));
+  }, [messages, editingMessageId, editMessageValue, isTyping, currentSession?.status, sessionId, memoizedAnswerSubmit]);
+
   return (
     <>
-      <div className="fixed inset-0 top-14 sm:top-16 flex w-full h-[calc(100vh-56px)] sm:h-[calc(100vh-64px)] overflow-hidden bg-[#fafafa] dark:bg-[#050505] font-outfit text-zinc-900 dark:text-zinc-100 antialiased">
+      <style dangerouslySetInnerHTML={{ __html: `
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        .font-inter { font-family: 'Inter', sans-serif !important; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.3); border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.5); }
+      `}} />
 
-        {/* 🚀 SIDEBAR (Desktop) */}
-        <aside className="hidden md:flex flex-col w-[280px] shrink-0 border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50 dark:bg-[#050505] relative z-30">
+      <div className="fixed inset-0 top-[56px] sm:top-[64px] flex w-full h-[calc(100dvh-56px)] sm:h-[calc(100dvh-64px)] overflow-hidden bg-white dark:bg-[#050505] font-inter text-zinc-900 dark:text-zinc-100 antialiased min-w-0">
+
+        {/* SIDEBAR */}
+        <aside className="hidden md:flex flex-col w-[260px] lg:w-[280px] shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#0c0c0e] relative z-30 min-w-0">
           <StudySidebar 
             sessions={sessions} 
             sessionId={sessionId} 
@@ -288,8 +451,8 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
           />
         </aside>
 
-        {/* 🚀 MAIN CHAT AREA */}
-        <main className="flex-1 flex flex-col min-w-0 relative h-full bg-white dark:bg-[#050505]">
+        {/* MAIN CHAT AREA */}
+        <main className="flex-1 flex flex-col min-w-0 relative h-full bg-white dark:bg-[#050505] overflow-hidden">
           
           <StudyHeader 
             sessionId={sessionId} 
@@ -303,127 +466,81 @@ export default function ActiveStudySessionPage({ params }: { params: Promise<{ i
             onRename={() => setShowRenameModal(true)}
           />
 
-          {/* 🚀 MESSAGES CONTENT */}
+          {/* MESSAGES */}
           <div 
             ref={scrollRef} 
-            className="flex-1 overflow-y-auto px-4 sm:px-6 pt-6 sm:pt-10 space-y-8 sm:space-y-12 custom-scrollbar pb-32 relative z-0"
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 md:p-8 scroll-smooth custom-scrollbar w-full min-w-0 relative z-0"
           >
             {loading && messages.length === 0 ? (
-               <div className="flex items-center justify-center h-full">
-                  <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
+               <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-500">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-600 dark:text-blue-500" />
+                  <span className="text-sm font-medium">Loading session...</span>
                </div>
             ) : (
-              <div className="max-w-4xl mx-auto w-full space-y-10 sm:space-y-12 pb-44">
-                {messages.map((m, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`flex flex-col gap-2 w-full animate-in fade-in duration-300 ${m.role === 'user' ? 'items-end' : 'items-start'}`}
-                  >
-                    <div className={`relative ${m.role === 'user' ? 'max-w-[90%] sm:max-w-[80%] bg-zinc-100 dark:bg-zinc-800/80 px-5 py-3.5 rounded-2xl text-zinc-900 dark:text-zinc-100' : 'w-full text-zinc-900 dark:text-zinc-200'}`}>
-                      {editingMessageId === idx ? (
-                        <div className="flex flex-col gap-3 w-full">
-                           <textarea 
-                             className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 text-sm font-outfit outline-none focus:border-blue-500 min-h-[100px] resize-none"
-                             autoFocus
-                             value={editMessageValue}
-                             onChange={(e) => setEditMessageValue(e.target.value)}
-                           />
-                           <div className="flex items-center justify-end gap-2">
-                             <button onClick={() => setEditingMessageId(null)} className="px-4 py-2 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors">Cancel</button>
-                             <button onClick={() => { handleEditSubmit(idx, editMessageValue); setEditingMessageId(null); }} className="px-4 py-2 text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors">Save & Resend</button>
-                           </div>
-                        </div>
-                      ) : (
-                        <StudyMarkdown 
-                          content={m.content} 
-                          role={m.role} 
-                          isLast={idx === messages.length - 1}
-                          isTyping={isTyping && idx === messages.length - 1}
-                          sessionId={sessionId || undefined}
-                          onAnswerSubmitted={(txt: string) => handleChatSubmit(txt)}
-                          isCompleted={currentSession?.status === 'completed'}
-                        />
-                      )}
-                    </div>
-
-                    {/* Actions under message */}
-                    {!editingMessageId && (
-                      <div className={`flex items-center gap-1 text-zinc-400 mt-1 ${m.role === 'user' ? 'mr-2 justify-end' : 'ml-0 justify-start'}`}>
-                        {m.role === 'assistant' ? (
-                          <>
-                            <button className="p-1.5 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors"><ThumbsUp size={14} /></button>
-                            <button className="p-1.5 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors"><ThumbsDown size={14} /></button>
-                            <div className="w-[1px] h-3 bg-zinc-200 dark:bg-zinc-800 mx-1" />
-                            <button onClick={() => handleRegenerate(idx)} className="p-1.5 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors" title="Regenerate"><RefreshCw size={14} /></button>
-                            <button onClick={handleMarkAsDone} className="p-1.5 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-md transition-colors" title="Mark as complete"><CheckCircle2 size={14} /></button>
-                            <CopyButton text={m.content} />
-                          </>
-                        ) : (
-                          <>
-                            <button onClick={() => { setEditingMessageId(idx); setEditMessageValue(m.content); }} className="p-1.5 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors" title="Edit message"><PenLine size={14} /></button>
-                            <CopyButton text={m.content} />
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
+              <div className="max-w-4xl mx-auto w-full space-y-8 sm:space-y-10 pb-4">
+                
+                {/* 🚀 Render the heavily cached messages array */}
+                {renderedMessages}
                 
                 {isTyping && (
-                  <div className="flex items-center gap-4 animate-in fade-in duration-500">
-                     <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
-                        <Loader2 size={16} className="text-zinc-500 animate-spin" />
-                     </div>
-                     <div className="text-sm font-medium text-zinc-500">Generating response...</div>
+                  <div className="flex items-center gap-3 animate-in fade-in duration-500 px-2">
+                     <Loader2 size={16} className="text-blue-600 dark:text-blue-500 animate-spin shrink-0" />
+                     <div className="text-[13px] font-medium text-zinc-500 truncate">Generating response...</div>
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          {/* 🚀 INPUT AREA */}
-          <div className="absolute bottom-0 left-0 right-0 z-50">
-            <ChatInput 
-              onSubmit={handleChatSubmit} 
-              loading={isTyping || isUploading} 
-              isUploading={isUploading} 
-              onStop={onStop} 
-              uploadedFiles={uploadedFiles} 
-              removeFile={handleRemoveFile}
-              onUploadClick={handleFileClick}
-              onShowQuizHistory={() => setShowQuizHistory(true)}
-            />
+          {/* INPUT AREA */}
+          <div className="shrink-0 bg-white/90 dark:bg-[#050505]/90 backdrop-blur-md border-t border-zinc-200 dark:border-zinc-800/80 p-3 sm:p-4 w-full z-10 min-w-0">
+            <div className="max-w-4xl mx-auto w-full">
+              <ChatInput 
+                onSubmit={handleChatSubmit} 
+                loading={isTyping || isUploading} 
+                isUploading={isUploading} 
+                onStop={onStop} 
+                uploadedFiles={uploadedFiles} 
+                removeFile={handleRemoveFile}
+                onUploadClick={handleFileClick}
+                onShowQuizHistory={() => setShowQuizHistory(true)}
+              />
+            </div>
           </div>
         </main>
 
-        {/* 🚀 MOBILE SIDEBAR OVERLAY */}
+        {/* MOBILE SIDEBAR OVERLAY */}
         {mobileMenuOpen && (
           <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm md:hidden animate-in fade-in duration-200" onClick={() => setMobileMenuOpen(false)}>
-             <aside className="w-[280px] h-full bg-white dark:bg-[#050505] shadow-2xl animate-in slide-in-from-left duration-300" onClick={e => e.stopPropagation()}>
-                <div className="absolute top-3 right-3 z-50">
-                   <button onClick={() => setMobileMenuOpen(false)} className="p-2 text-zinc-400 hover:text-zinc-900 dark:hover:text-white bg-zinc-100 dark:bg-zinc-900 rounded-lg transition-colors"><X size={18} /></button>
+             <aside className="w-[280px] h-full bg-zinc-50 dark:bg-[#0c0c0e] shadow-2xl animate-in slide-in-from-left duration-300 border-r border-zinc-200 dark:border-zinc-800 flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="h-14 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center px-4 shrink-0 bg-white dark:bg-[#050505]">
+                  <span className="font-semibold text-sm text-zinc-900 dark:text-white">Study Workspaces</span>
+                  <button onClick={() => setMobileMenuOpen(false)} className="p-2 -mr-2 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors"><X size={18} /></button>
                 </div>
-                <StudySidebar 
-                  sessions={sessions} 
-                  sessionId={sessionId} 
-                  filter={filter} 
-                  setFilter={setFilter} 
-                  loadSession={(id: string) => { setMobileMenuOpen(false); router.push(`/dashboard/chat/study/${id}`); }} 
-                  setEditingId={setEditingId} 
-                  editingId={editingId} 
-                  editTitle={editTitle} 
-                  setEditTitle={setEditTitle} 
-                  saveRename={handleRename} 
-                  handleDelete={handleDelete} 
-                  createNewSession={handleCreateNew} 
-                  onShowQuizHistory={() => setShowQuizHistory(true)}
-                />
+                <div className="flex-1 overflow-hidden min-w-0 w-full relative">
+                  <StudySidebar 
+                    sessions={sessions} 
+                    sessionId={sessionId} 
+                    filter={filter} 
+                    setFilter={setFilter} 
+                    loadSession={(id: string) => { setMobileMenuOpen(false); router.push(`/dashboard/chat/study/${id}`); }} 
+                    setEditingId={setEditingId} 
+                    editingId={editingId} 
+                    editTitle={editTitle} 
+                    setEditTitle={setEditTitle} 
+                    saveRename={handleRename} 
+                    handleDelete={handleDelete} 
+                    createNewSession={() => { setMobileMenuOpen(false); handleCreateNew(); }} 
+                    onShowQuizHistory={() => { setMobileMenuOpen(false); setShowQuizHistory(true); }}
+                  />
+                </div>
              </aside>
           </div>
         )}
       </div>
 
-      {/* 🚀 MODALS RENDERED AT HIGHEST LEVEL TO PREVENT Z-INDEX CLIPPING */}
+      {/* MODALS */}
       <div className="relative z-[999]">
         <QuizHistoryModal 
           isOpen={showQuizHistory}

@@ -6,16 +6,14 @@ import { AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage } from
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 
 import { executableTools, webSearchTool } from './agent/tools'
-import { getGroqModel, getGeminiModel } from './agent/providers'
+import { getGeminiModel, getGroqModel, geminiQueue, groqQueue } from './agent/providers'
 import { GENERAL_PROMPT } from './agent/prompts'
-import { processAndStorePdfChunks, retrieveRelevantContext } from './agent/rag';
 
 const extractServerSources = (content: string, messages?: BaseMessage[]) => {
   const sources: { title: string, url: string, domain: string }[] = [];
   const seenUrls = new Set<string>();
   
   const processText = (text: string) => {
-    // 1. Markdown link citations [X](url) or [Citation X](url)
     const linkRegex = /\[(?:Citation|Source|\d+)\s*(?:\d+)?\]\((https?:\/\/[^\s\)]+)\)/gi;
     let match;
     while ((match = linkRegex.exec(text)) !== null) {
@@ -27,7 +25,6 @@ const extractServerSources = (content: string, messages?: BaseMessage[]) => {
         } catch { sources.push({ title: 'Source', url: match[1], domain: 'link' }); }
       }
     }
-    // 2. Raw URLs (fallback for brief AI answers)
     const rawUrlRegex = /(https?:\/\/[^\s\),"'<>]+)/gi;
     while ((match = rawUrlRegex.exec(text)) !== null) {
         if (!seenUrls.has(match[0])) {
@@ -42,7 +39,6 @@ const extractServerSources = (content: string, messages?: BaseMessage[]) => {
 
   processText(content);
   
-  // 🚀 FALLBACK: If AI text has 0 citations, scan the ToolMessages (Search Reports)
   if (sources.length === 0 && messages) {
       messages.forEach(m => {
           if (m instanceof ToolMessage || (m as any).type === 'tool' || (m as any).name === 'web_search') {
@@ -112,13 +108,11 @@ export async function getChatMessages(sessionId: string) {
   return data || [];
 }
 
-
 export async function duplicateSession(sessionId: string) {
   const supabaseAuth = await createServerClient();
   const { data: { user } } = await supabaseAuth.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  // 1. Get original session title
   const { data: originalSession } = await supabaseAdmin
     .from('chat_sessions')
     .select('title')
@@ -127,7 +121,6 @@ export async function duplicateSession(sessionId: string) {
 
   const title = originalSession?.title || "Forked Session";
 
-  // 2. Create new session for the current user
   const { data: newSession, error: sErr } = await supabaseAdmin
     .from('chat_sessions')
     .insert({ user_id: user.id, title: `Clone: ${title.replace('...', '')}` })
@@ -135,7 +128,6 @@ export async function duplicateSession(sessionId: string) {
 
   if (sErr || !newSession) throw new Error("Failed to create new session");
 
-  // 3. Get all messages from original session
   const { data: messages } = await supabaseAdmin
     .from('chat_messages')
     .select('role, content, sources')
@@ -149,10 +141,8 @@ export async function duplicateSession(sessionId: string) {
       content: m.content,
       sources: m.sources
     }));
-    
     await supabaseAdmin.from('chat_messages').insert(messagesToInsert);
   }
-
   return newSession.id;
 }
 
@@ -169,6 +159,8 @@ export async function getSessionById(id: string) {
 // 🚀 NATIVE LANGGRAPH REACT AGENT
 // ==========================================
 
+type ModelTier = 'groq' | 'gemini-2.5-flash' | 'gemini-2.5-pro';
+
 export async function sendCoachingMessage(
   sessionId: string, 
   content: string, 
@@ -180,10 +172,9 @@ export async function sendCoachingMessage(
   const { data: { user } } = await supabaseAuth.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  // Fetch History
   const { data: pastMessages } = await supabaseAdmin
     .from('chat_messages')
-    .select('role, content')
+    .select('id, role, content')
     .eq('session_id', sessionId)
     .order('created_at', { ascending: true });
 
@@ -195,7 +186,7 @@ export async function sendCoachingMessage(
     dbHistory = dbHistory.slice(0, truncateIndex);
   }
 
-  const langchainHistory: BaseMessage[] = dbHistory.slice(-20).map(m => {
+  const langchainHistory: BaseMessage[] = dbHistory.slice(-4).map(m => {
     let text = m.content;
     if (typeof text === 'string' && text.length > 8000) {
       text = text.substring(0, 8000) + "... [Content Truncated]";
@@ -203,48 +194,141 @@ export async function sendCoachingMessage(
     return m.role === 'user' ? new HumanMessage(text) : new AIMessage(text);
   });
 
-  let hasPdf = false;
+  let hasPdfOrDoc = false;
   let hasImage = false;
   let fileMarkdown = "";
   let currentMessageParts: any[] = [{ type: 'text', text: content }];
   let pdfContextBuffer = "";
 
-  const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg'];
+  const docExtensions = ['.pdf', '.ppt', '.pptx', '.doc', '.docx', '.txt', '.csv', '.rtf'];
+  
+  const safeInvoke = async (msgs: BaseMessage[], withTools: boolean = false, targetTier: ModelTier) => {
+      let attempts = 0;
+      let lastError: any;
+      let activeTier = targetTier;
+      
+      const fallbackSequence: Record<ModelTier, ModelTier> = {
+          'groq': 'gemini-2.5-flash',
+          'gemini-2.5-flash': 'groq',
+          'gemini-2.5-pro': 'gemini-2.5-flash'
+      };
+
+      if (hasPdfOrDoc) {
+          fallbackSequence['gemini-2.5-flash'] = 'gemini-2.5-flash'; 
+          fallbackSequence['groq'] = 'gemini-2.5-flash'; 
+      }
+
+      while (attempts < 4) {
+          let tempModel;
+          let activeQueue;
+          
+          if (activeTier === 'groq') {
+              tempModel = getGroqModel(hasImage, false); 
+              activeQueue = groqQueue;
+          } else {
+              tempModel = getGeminiModel(activeTier as 'gemini-2.5-flash' | 'gemini-2.5-pro');
+              activeQueue = geminiQueue;
+          }
+
+          const formattedMsgs = msgs.map(msg => {
+              if (activeTier === 'groq' && msg._getType() === 'ai') {
+                  let textContent = msg.content;
+                  if (Array.isArray(textContent)) {
+                      textContent = textContent.map((c: any) => c.text || '').join('');
+                  }
+                  return new AIMessage({
+                      content: typeof textContent === 'string' ? textContent : String(textContent),
+                      tool_calls: (msg as AIMessage).tool_calls,
+                      invalid_tool_calls: (msg as AIMessage).invalid_tool_calls
+                  });
+              }
+              return msg;
+          });
+
+          try {
+              let runnable = withTools ? tempModel.bindTools(executableTools) : tempModel;
+              return await runnable.invoke(formattedMsgs);
+          } catch (e: any) {
+              lastError = e;
+              const errorStr = String(e) + (e?.message || "") + JSON.stringify(e);
+              
+              if (errorStr.includes('429') || errorStr.includes('503') || errorStr.includes('Unavailable') || errorStr.includes('quota') || errorStr.includes('rate_limit') || errorStr.includes('404')) {
+                  const failedKey = (tempModel as any)._inferaKey;
+                  const isServerOverload = errorStr.includes('503') || errorStr.includes('Unavailable');
+                  
+                  console.log(`⚠️ Network Drop [${isServerOverload ? '503 Overload' : '429 Rate Limit'}] on ${activeTier}. Penalizing key ...${failedKey?.slice(-4) || 'unknown'}`);
+                  
+                  activeQueue.reportFailure(failedKey, 60); 
+                  
+                  activeTier = fallbackSequence[activeTier];
+                  attempts++;
+
+                  if (isServerOverload) {
+                      console.log("⏳ Pausing 1.5s for server recovery...");
+                      await new Promise(resolve => setTimeout(resolve, 1500));
+                  }
+              } else {
+                  throw e; 
+              }
+          }
+      }
+      throw lastError; 
+  };
+
   for (const url of fileUrls) {
-    const ext = url.split('.').pop()?.toLowerCase() || "";
+    const urlLower = url.toLowerCase();
+    // 🚀 THE FIX: Strip query parameters BEFORE checking the extension
+    const ext = urlLower.split('.').pop()?.split('?')[0] || "";
     const fileName = url.split('/').pop()?.split('?')[0] || "file";
 
-    if (ext === 'pdf') {
-      hasPdf = true;
+    // STRICT CHECKING: If it's a doc extension, it is NEVER an image.
+    const isDoc = docExtensions.includes(`.${ext}`);
+    const isImage = !isDoc && (imageExtensions.includes(`.${ext}`) || urlLower.includes('/image/upload'));
+
+    if (isImage) {
+      hasImage = true;
+      fileMarkdown += `\n\n![Uploaded Image](${url})`; 
+      currentMessageParts.push({ type: 'image_url', image_url: { url } });
+      console.log(`🖼️ [IMAGE DETECTED] Routing via Llama-4-Scout (Groq)...`);
+    } 
+    else if (isDoc) {
+      hasPdfOrDoc = true;
       fileMarkdown += `\n\n[Attached Document: ${fileName}](${url})`;
       try {
         const arrayBuffer = await fetch(url).then(r => r.arrayBuffer());
         const b64Data = Buffer.from(arrayBuffer).toString('base64');
         
+        let mimeType = 'application/octet-stream';
+        if (ext === 'pdf') mimeType = 'application/pdf';
+        else if (ext === 'txt') mimeType = 'text/plain';
+        else if (ext === 'csv') mimeType = 'text/csv';
+
         currentMessageParts.push({
           type: 'media',
-          mimeType: 'application/pdf',
+          mimeType: mimeType,
           data: b64Data
         });
 
-        // 🚀 INSTANT PDF TEXT EXTRACTION (ZERO-G RAG Fallback)
-        console.log("📄 [EXTRACTING DOCUMENT TEXT...] for persistence...");
-        const extractModel = getGeminiModel();
-        const extractRes = await extractModel.invoke([
-            { role: 'user', content: [
-                { type: 'media', mimeType: 'application/pdf', data: b64Data },
-                { type: 'text', text: 'Extract and summarize all the text from this PDF exactly as it appears. Provide only the text.' }
-            ]}
-        ]);
+        console.log(`📄 [EXTRACTING ${mimeType.toUpperCase()}...] strictly via Gemini 2.5 Flash`);
+        const extractMsgs = [new HumanMessage({
+            content: [
+                {
+                  type: "image_url",
+                  image_url: `data:${mimeType};base64,${b64Data}`
+                },
+                { type: 'text', text: `Extract and summarize all the text from this document exactly as it appears. Provide only the text.` }
+            ]
+        })];
+        const extractRes = await safeInvoke(extractMsgs, false, 'gemini-2.5-flash') as AIMessage;
         const extractedText = typeof extractRes.content === 'string' ? extractRes.content : "";
         pdfContextBuffer += `\n\n[AUTO-EXTRACTED DOCUMENT CONTEXT FOR '${fileName}']:\n${extractedText}\n[END OF DOCUMENT CONTEXT]\n`;
       } catch (e) {
-        console.error("Failed to fetch/extract PDF:", e);
+        console.error(`Failed to fetch/extract Document:`, e);
+        pdfContextBuffer += `\n\n[SYSTEM NOTE: Attempted to process '${fileName}' but extraction failed.]\n`;
       }
-    } else if (imageExtensions.includes(ext)) {
-      hasImage = true;
-      fileMarkdown += `\n\n![${fileName}](${url})`;
-      currentMessageParts.push({ type: 'image_url', image_url: { url } });
+    } else {
+      fileMarkdown += `\n\n[Attached File: ${fileName}](${url})`;
     }
   }
 
@@ -259,39 +343,26 @@ export async function sendCoachingMessage(
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
 
-  const systemMessage = new SystemMessage(`${GENERAL_PROMPT}\n\n[CURRENT_REAL_TIME_CONTEXT]:\nDate: ${dateStr}\nTime: ${timeStr}`);
+  const strictSystemPrompt = `${GENERAL_PROMPT}\n\n` +
+    `==== STRICT REASONING GUARDRAILS ====\n` +
+    `1. DIRECT ANSWER: Respond EXACTLY to what the user asked in their latest message.\n` +
+    `2. NO DATE SEARCHING: You already know today's date and time (listed below). NEVER use a search tool to find the current date or time.\n` +
+    `3. STRICT GROUNDING: If you use the web_search tool for live events (like sports, scores, points tables, news), you MUST base your answer ONLY on the returned search results. DO NOT use your internal training data. If the search results don't have the answer, say "I cannot find the current information."\n` +
+    `=====================================\n\n` +
+    `[CURRENT_REAL_TIME_CONTEXT]:\nDate: ${dateStr}\nTime: ${timeStr}`;
+
+  const systemMessage = new SystemMessage(strictSystemPrompt);
 
   try {
-    let llmToUse;
-    if (hasPdf) llmToUse = getGeminiModel();
-    else if (hasImage) llmToUse = getGroqModel(true);
-    else if (hasPdf || langchainHistory.length > 5) {
-        console.log("🚀 [HEAVY CONTEXT DETECTED] Routing directly to Gemini 2.5 Flash to avoid Groq Org Limits.");
-        llmToUse = getGeminiModel();
-    }
-    else llmToUse = getGroqModel(false);
-
-    // 🚀 NATIVE LANGCHAIN TOOL BINDING (SKIPS SEARCH TOOLS IF IMAGE/PDF TURN)
-    const canUseTools = !hasImage && !hasPdf;
-    let modelWithTools = canUseTools ? llmToUse.bindTools(executableTools) : llmToUse;
+    let initialTier: ModelTier = (hasPdfOrDoc || langchainHistory.length > 5) ? 'gemini-2.5-flash' : 'groq'; 
+    const canUseTools = !hasImage && !hasPdfOrDoc;
     inputMessages = [systemMessage, ...inputMessages];
     
     let aiMessage: AIMessage | undefined;
 
     try {
-      try {
-        aiMessage = await modelWithTools.invoke(inputMessages);
-      } catch (innerE: any) {
-        const errorStr = String(innerE) + (innerE?.message || "") + JSON.stringify(innerE);
-        if (errorStr.includes('429') || errorStr.includes('rate_limit') || errorStr.includes('Rate limit') || errorStr.includes('tokens')) {
-           console.log("⚠️ Groq Organization limit hit. Falling back to Gemini 2.5 Flash natively...");
-           llmToUse = getGeminiModel();
-           modelWithTools = canUseTools ? llmToUse.bindTools(executableTools) : llmToUse;
-           aiMessage = await modelWithTools.invoke(inputMessages);
-        } else {
-           throw innerE;
-        }
-      }
+      aiMessage = await safeInvoke(inputMessages, canUseTools, initialTier) as AIMessage;
+      
     } catch (e: any) {
       if (!canUseTools) throw e;
       console.log("⚠️ Caught API Tool Binding Failure! Healing natively...");
@@ -306,7 +377,6 @@ export async function sendCoachingMessage(
         failedGen = typeof e === 'object' ? JSON.stringify(e) + (e.message || "") : String(e);
       }
       
-      // Clean all escape characters safely so we can regex normally without fighting escape slashes
       let cleanStr = failedGen.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\n/g, " ");
       
       const kwMatch = cleanStr.match(/"keyword"\s*[:=]\s*"([^"]+)"/i) || cleanStr.match(/keyword\s*=\s*"([^"]+)"/i);
@@ -319,19 +389,17 @@ export async function sendCoachingMessage(
 
       console.log(`🔍 [REFINING QUERY] Initial Keyword: '${extractedQuery}'`);
       
-      // 🚀 QUERY OPTIMIZER: Transform messy extracted text into a high-quality search keyword
       try {
-        const optimizerModel = getGeminiModel();
-        const optimizerRes = await optimizerModel.invoke([
-          new SystemMessage("You are a Search Query Optimizer. Your job is to transform truncated, messy, or hallucinated search keywords into a professional, highly specific, SEO-optimized Google search query. " + 
-                             "Ignore randomly-generated file names (like .png or .pdf), technical code snippets, or user-facing phrases like 'tell me more'. " +
-                             "OUTPUT ONLY THE REFINED TEXT. NO COMMENTARY."),
+        const optMsgs = [
+          new SystemMessage("You are a Search Query Optimizer... OUTPUT ONLY THE REFINED TEXT."),
           new HumanMessage(`[CHAT HISTORY CONTEXT]:\n${langchainHistory.slice(-4).map(m => `[${m.role}]: ${m.content.toString().substring(0, 500)}`).join('\n')}\n\n[MESSY QUERY TO OPTIMIZE]: ${extractedQuery}`)
-        ]);
+        ];
+        
+        let fastModel = getGroqModel(false, true); 
+        const optimizerRes = await fastModel.invoke(optMsgs) as AIMessage;
+        
         const optimizedText = typeof optimizerRes.content === 'string' ? optimizerRes.content.trim() : extractedQuery;
-        if (optimizedText && optimizedText.length > 3) {
-            extractedQuery = optimizedText.replace(/^"|"$/g, ''); // strip quotes
-        }
+        if (optimizedText && optimizedText.length > 3) extractedQuery = optimizedText.replace(/^"|"$/g, '');
       } catch (optE) {
         console.warn("⚠️ Query optimizer failed, using raw extraction.");
       }
@@ -346,12 +414,10 @@ export async function sendCoachingMessage(
         name: "web_search",
       }));
       
-      console.log("⚠️ Utilizing Groq for recovery fallback!");
-      aiMessage = await llmToUse.invoke(inputMessages) as AIMessage;
+      console.log("⚠️ Utilizing Fallback Model for recovery completion!");
+      aiMessage = await safeInvoke(inputMessages, false, initialTier) as AIMessage;
     }
 
-    // 🚀 EXECUTE VALID TOOL CALLS (PLUS INLINE TEXT-JSON INTERCEPTOR)
-    // ONLY EXECUTE IF IT IS NOT A VISION TURN
     const textContentRaw = typeof aiMessage?.content === 'string' ? aiMessage.content : "";
     const hasHallucinatedJson = textContentRaw.includes('web_search') && textContentRaw.includes('keyword');
     let callsToProcess = (aiMessage?.tool_calls && canUseTools) ? aiMessage.tool_calls : [];
@@ -392,8 +458,7 @@ export async function sendCoachingMessage(
         }));
       }
       
-      // Re-invoke with tool results
-      aiMessage = await llmToUse.invoke(inputMessages) as AIMessage;
+      aiMessage = await safeInvoke(inputMessages, false, initialTier) as AIMessage;
     }
 
     if (!aiMessage) {
@@ -419,7 +484,6 @@ export async function sendCoachingMessage(
 
     if (msgErr) {
         console.error("❌ SUPABASE SOURCE STORAGE FAILURE:", msgErr.message, msgErr.details);
-        // Fallback: try to store without sources if the column is missing to at least save the text
         if (msgErr.message.includes("column \"sources\" does not exist")) {
            console.warn("⚠️ Column 'sources' is missing! Falling back to content-only save.");
            await supabaseAdmin.from('chat_messages').insert({ 
@@ -444,6 +508,21 @@ export async function archiveSession(sessionId: string) {
   const { error } = await supabaseAdmin
     .from('chat_sessions')
     .update({ status: 'archived' })
+    .eq('id', sessionId)
+    .eq('user_id', user.id);
+
+  if (error) throw error;
+  return { success: true };
+}
+
+export async function unarchiveSession(sessionId: string) {
+  const supabaseAuth = await createServerClient();
+  const { data: { user } } = await supabaseAuth.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const { error } = await supabaseAdmin
+    .from('chat_sessions')
+    .update({ status: 'active' })
     .eq('id', sessionId)
     .eq('user_id', user.id);
 

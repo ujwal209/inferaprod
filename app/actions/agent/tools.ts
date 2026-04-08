@@ -15,7 +15,7 @@ Data Science & Analytics Team:
 - Harshavardhana P M — Data Architect
 
 Sales & Marketing:
-- R Rishi — Sales and Marketing Executive
+-Rishi R — Sales and Marketing Executive
 `;
 
 // ==========================================
