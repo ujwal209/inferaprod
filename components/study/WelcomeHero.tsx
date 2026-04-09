@@ -55,11 +55,12 @@ export const WelcomeHero = ({
       <div className="w-full max-w-3xl space-y-8 md:space-y-10 animate-in fade-in duration-500 min-w-0">
         
         {/* Header Text */}
-        <div className="text-center space-y-2 sm:space-y-3 w-full min-w-0 px-2">
-           <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight text-zinc-900 dark:text-white truncate">
+        <div className="text-center space-y-3 sm:space-y-3 w-full min-w-0 px-2">
+           {/* 🚀 FIXED: Removed truncate, added leading-tight for proper mobile wrapping */}
+           <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight text-zinc-900 dark:text-white leading-tight break-words">
              What do you want to <span className="text-blue-600 dark:text-blue-500">learn?</span>
            </h1>
-           <p className="text-[14px] sm:text-[15px] text-zinc-500 dark:text-zinc-400 max-w-xl mx-auto font-medium break-words">
+           <p className="text-[14px] sm:text-[15px] text-zinc-500 dark:text-zinc-400 max-w-xl mx-auto font-medium break-words leading-relaxed">
              Enter a subject and your specific goals to generate a personalized, interactive study roadmap.
            </p>
         </div>
@@ -147,7 +148,7 @@ export const WelcomeHero = ({
                {uploadedFiles?.length > 0 && (
                  <div className="px-3 pb-3 flex flex-wrap gap-2 w-full min-w-0 border-t border-zinc-200 dark:border-zinc-800 pt-3">
                    {uploadedFiles.map((file: any, idx: number) => (
-                     <div key={idx} className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 rounded-md shadow-sm max-w-full">
+                     <div key={idx} className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 rounded-md shadow-sm max-w-full min-w-0">
                         <span className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300 truncate max-w-[150px]">{file.name}</span>
                         <button type="button" onClick={() => removeFile(idx)} className="text-zinc-400 hover:text-red-500 transition-colors shrink-0">
                            <X size={12} />
