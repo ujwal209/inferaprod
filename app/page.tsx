@@ -9,7 +9,8 @@ import { Footer } from '@/components/landing/footer'
 import { 
   ArrowRight, Sparkles, CheckSquare, Square, Target, 
   Brain, Map, BookOpen, Rss, MessageSquareHeart, ChevronRight,
-  Zap, AlertCircle, Terminal, Search, BrainCircuit, Loader2, Send
+  Zap, AlertCircle, Terminal, Search, BrainCircuit, Loader2, Send,
+  Lock
 } from "lucide-react"
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -287,14 +288,15 @@ export default function LandingPage() {
               </p>
             </div>
 
-            <div className="w-full max-w-5xl mx-auto bg-white/60 dark:bg-[#0c0c0e]/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col h-[600px] text-left">
-              <div className="p-4 sm:p-5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-[#111113]/80 flex justify-between items-center">
+            <div className="w-full max-w-5xl mx-auto bg-white/60 dark:bg-[#0c0c0e]/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col h-[600px] text-left relative">
+              <div className="p-4 sm:p-5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-[#111113]/80 flex justify-between items-center z-10">
                 <div className="flex items-center gap-3">
                   <Image src="/logo.png" width={100} height={24} alt="Inferacore" className="h-[18px] sm:h-[22px] w-auto dark:invert opacity-95" />
                   <div className="h-5 w-[1px] bg-zinc-300 dark:bg-zinc-700 hidden sm:block"></div>
                   <span className="hidden sm:inline-block text-zinc-500 dark:text-zinc-400 font-google-sans text-xs sm:text-sm font-bold tracking-wide uppercase mt-0.5">Neural Engine Console</span>
                 </div>
               </div>
+              
               <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-4 custom-scrollbar">
                 {demoMessages.length === 0 && (
                   <div className="m-auto text-center text-zinc-400 font-medium max-w-sm">
@@ -302,7 +304,7 @@ export default function LandingPage() {
                   </div>
                 )}
                 {demoMessages.map((m, i) => (
-                  <div key={i} className={`w-fit max-w-[85%] p-4 rounded-2xl ${m.role === 'user' ? 'bg-blue-600 text-white self-end rounded-tr-sm' : 'bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 self-start rounded-tl-sm'}`}>
+                  <div key={i} className={`w-fit max-w-[85%] p-4 rounded-2xl ${m.role === 'user' ? 'bg-blue-600 text-white self-end rounded-tr-sm shadow-sm' : 'bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 self-start rounded-tl-sm shadow-sm'}`}>
                     {m.role === 'user' ? (
                       <p className="text-[15px] font-medium leading-relaxed whitespace-pre-wrap">{m.content}</p>
                     ) : (
@@ -318,23 +320,49 @@ export default function LandingPage() {
                   </div>
                 )}
               </div>
-              <form onSubmit={handleDemoSubmit} className="p-4 bg-white dark:bg-[#0c0c0e] border-t border-zinc-200 dark:border-zinc-800 flex gap-3">
-                <input 
-                  type="text" 
-                  value={demoInput} 
-                  onChange={e => setDemoInput(e.target.value)} 
-                  placeholder={promptsUsed >= 3 ? "Demo expired. Initialize your Workspace below to continue." : "Enter a complex topic..."} 
-                  className="flex-1 bg-zinc-100 dark:bg-zinc-900/50 border border-transparent focus:border-blue-500 rounded-xl px-4 text-[15px] outline-none transition-all placeholder:text-zinc-400 font-medium disabled:opacity-60" 
-                  disabled={demoLoading || promptsUsed >= 3} 
-                />
-                <button 
-                  type="submit" 
-                  disabled={demoLoading || !demoInput.trim() || promptsUsed >= 3} 
-                  className="w-12 h-12 bg-blue-600 text-white rounded-xl flex items-center justify-center hover:bg-blue-500 disabled:bg-zinc-300 dark:disabled:bg-zinc-800 disabled:text-zinc-500 transition-colors shrink-0"
-                >
-                  <Send size={18} />
-                </button>
-              </form>
+
+              {/* Dynamic Bottom Area: Input OR Sign Up CTA */}
+              {promptsUsed >= 3 ? (
+                <div className="relative overflow-hidden bg-zinc-50 dark:bg-[#111113] border-t border-zinc-200 dark:border-zinc-800 p-6 sm:p-8 flex flex-col items-center justify-center text-center animate-in slide-in-from-bottom-2 fade-in duration-500">
+                  <div className="absolute inset-0 bg-gradient-to-t from-blue-500/5 to-transparent pointer-events-none" />
+                  
+                  <div className="w-12 h-12 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-sm flex items-center justify-center mb-4 relative z-10 text-blue-600 dark:text-blue-400">
+                    <Lock size={22} />
+                  </div>
+                  
+                  <h3 className="font-google-sans text-xl sm:text-2xl font-bold text-zinc-900 dark:text-white mb-2 relative z-10">
+                    Demo Limit Reached
+                  </h3>
+                  <p className="text-zinc-500 dark:text-zinc-400 text-[14px] sm:text-[15px] max-w-md mx-auto font-medium mb-6 relative z-10 leading-relaxed">
+                    You've experienced a taste of the Neural Engine. Create a free account to unlock unlimited agents, real-time web search, and persistent workspaces.
+                  </p>
+                  
+                  <Link 
+                    href="/auth/signup" 
+                    className="relative z-10 group inline-flex items-center justify-center gap-2 bg-blue-600 text-white font-google-sans font-bold px-8 h-12 sm:h-14 rounded-full text-[15px] sm:text-[16px] transition-all outline-none shadow-[0_10px_20px_rgba(37,99,235,0.2)] hover:shadow-[0_15px_30px_rgba(37,99,235,0.4)] hover:bg-blue-500 active:scale-95"
+                  >
+                    Sign up to continue <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+                  </Link>
+                </div>
+              ) : (
+                <form onSubmit={handleDemoSubmit} className="p-4 bg-white dark:bg-[#0c0c0e] border-t border-zinc-200 dark:border-zinc-800 flex gap-3 z-10">
+                  <input 
+                    type="text" 
+                    value={demoInput} 
+                    onChange={e => setDemoInput(e.target.value)} 
+                    placeholder="Enter a complex topic..." 
+                    className="flex-1 bg-zinc-100 dark:bg-zinc-900/50 border border-transparent focus:border-blue-500 rounded-xl px-4 text-[15px] outline-none transition-all placeholder:text-zinc-400 font-medium" 
+                    disabled={demoLoading} 
+                  />
+                  <button 
+                    type="submit" 
+                    disabled={demoLoading || !demoInput.trim()} 
+                    className="w-12 h-12 bg-blue-600 text-white rounded-xl flex items-center justify-center hover:bg-blue-500 disabled:bg-zinc-300 dark:disabled:bg-zinc-800 disabled:text-zinc-500 transition-colors shrink-0"
+                  >
+                    <Send size={18} />
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         </section>

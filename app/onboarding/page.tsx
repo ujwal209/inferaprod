@@ -7,9 +7,9 @@ import { useTheme } from 'next-themes'
 import { CldUploadWidget } from 'next-cloudinary'
 import { completeOnboardingAction } from '@/app/actions/onboarding'
 import { 
-  Cpu, ArrowRight, Loader2, UploadCloud, 
-  User, GraduationCap, Code2, AlertCircle, Target, Network,
-  Menu, X, Fingerprint, Layers, Lock, Sun, Moon, Search
+  ArrowRight, Loader2, UploadCloud, 
+  User, GraduationCap, Code2, AlertCircle, 
+  Menu, X, Layers, Lock, Sun, Moon, Search
 } from "lucide-react"
 
 // ============================================================================
@@ -42,10 +42,8 @@ const fetchApiSuggestions = async (query: string, type: 'university' | 'general'
     if (type === 'university') {
       const res = await fetch(`http://universities.hipolabs.com/search?name=${encodeURIComponent(query)}`);
       const data = await res.json();
-      // Remove duplicates and limit to top 5
       return Array.from(new Set(data.map((d: any) => d.name))).slice(0, 5) as string[];
     } else {
-      // Use Datamuse for generic tech/skill/degree suggestions
       const res = await fetch(`https://api.datamuse.com/sug?s=${encodeURIComponent(query)}`);
       const data = await res.json();
       return data.map((d: any) => d.word).slice(0, 5) as string[];
@@ -57,9 +55,9 @@ const fetchApiSuggestions = async (query: string, type: 'university' | 'general'
 };
 
 // ============================================================================
-// 3. SMART SINGLE SELECT (For Domain, College, Degree)
+// 3. SMART SINGLE SELECT
 // ============================================================================
-function LiveApiSingleSelect({ name, placeholder, apiType }: { name: string, placeholder: string, apiType: 'university' | 'general' }) {
+function LiveApiSingleSelect({ name, placeholder, apiType, required = false }: { name: string, placeholder: string, apiType: 'university' | 'general', required?: boolean }) {
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<string[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -96,7 +94,7 @@ function LiveApiSingleSelect({ name, placeholder, apiType }: { name: string, pla
           name={name}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          required 
+          required={required} 
           autoComplete="off"
           className="font-outfit w-full h-14 pl-12 pr-5 rounded-2xl bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-[#111113] focus:border-blue-500 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 text-[15px] font-medium shadow-sm transition-all outline-none text-zinc-900 dark:text-white placeholder:text-zinc-400"
           placeholder={placeholder} 
@@ -124,7 +122,7 @@ function LiveApiSingleSelect({ name, placeholder, apiType }: { name: string, pla
 }
 
 // ============================================================================
-// 4. SMART MULTI-SELECT (For Skills, Interests)
+// 4. SMART MULTI-SELECT
 // ============================================================================
 function LiveApiMultiSelect({ name, placeholder }: { name: string, placeholder: string }) {
   const [query, setQuery] = React.useState('')
@@ -148,7 +146,6 @@ function LiveApiMultiSelect({ name, placeholder }: { name: string, placeholder: 
       if (query.trim().length >= 2 && document.activeElement === inputRef.current) {
         setLoading(true);
         const data = await fetchApiSuggestions(query, 'general');
-        // Filter out already selected items
         setResults(data.filter(d => !selected.includes(d)));
         setIsOpen(data.length > 0);
         setLoading(false);
@@ -172,7 +169,6 @@ function LiveApiMultiSelect({ name, placeholder }: { name: string, placeholder: 
 
   return (
     <div className="relative w-full" ref={wrapperRef}>
-      {/* Hidden input for form submission */}
       <input type="hidden" name={name} value={selected.join(', ')} />
       
       <div 
@@ -234,10 +230,12 @@ function LiveApiMultiSelect({ name, placeholder }: { name: string, placeholder: 
 // ============================================================================
 export default function OnboardingPage() {
   const [loading, setLoading] = React.useState(false)
+  const [skipLoading, setSkipLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [avatarUrl, setAvatarUrl] = React.useState<string>('')
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
   const [role, setRole] = React.useState<'student' | 'professional'>('student')
+  const formRef = React.useRef<HTMLFormElement>(null);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -247,13 +245,24 @@ export default function OnboardingPage() {
     const formData = new FormData(e.currentTarget)
     formData.append('avatar_url', avatarUrl)
 
-    // Optional fields logic handled by the backend
-
-    const result = await completeOnboardingAction(formData)
+    const result = await completeOnboardingAction(formData, false)
     
     if (result?.error) {
       setError(result.error)
       setLoading(false)
+    }
+  }
+
+  const handleSkip = async () => {
+    setSkipLoading(true)
+    setError(null)
+
+    const formData = new FormData(formRef.current || undefined)
+    const result = await completeOnboardingAction(formData, true)
+    
+    if (result?.error) {
+      setError(result.error)
+      setSkipLoading(false)
     }
   }
 
@@ -265,8 +274,45 @@ export default function OnboardingPage() {
         .font-google-sans { font-family: 'Google Sans', sans-serif !important; }
       `}} />
 
-      <div className="h-[100dvh] w-full bg-[#fafafa] dark:bg-[#050505] font-outfit selection:bg-blue-500/20 flex flex-col lg:flex-row overflow-hidden antialiased">
+      <div className="min-h-[100dvh] w-full bg-[#fafafa] dark:bg-[#050505] font-outfit selection:bg-blue-500/20 antialiased relative flex flex-col">
         
+        {/* ================= AMBIENT BACKGROUND ARCHITECTURE ================= */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
+
+        {/* ================= FLOATING SKIP TOAST MODAL ================= */}
+        <div className="fixed bottom-6 right-6 lg:bottom-10 lg:right-10 z-[100] animate-in slide-in-from-bottom-8 fade-in duration-700 delay-500 fill-mode-both">
+          <div className="bg-white/80 dark:bg-[#111113]/80 backdrop-blur-xl border border-zinc-200/80 dark:border-zinc-800 shadow-2xl shadow-zinc-200/20 dark:shadow-none rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 max-w-[calc(100vw-3rem)] sm:max-w-md ring-1 ring-black/5 dark:ring-white/5">
+            <div className="flex-1 text-center sm:text-left">
+              <h4 className="font-google-sans text-[14px] font-bold text-zinc-900 dark:text-white mb-0.5">In a rush?</h4>
+              <p className="font-outfit text-[13px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                You can bypass setup and configure your workspace later.
+              </p>
+            </div>
+            <button 
+              onClick={handleSkip}
+              disabled={skipLoading || loading}
+              className="shrink-0 w-full sm:w-auto px-5 py-2.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-google-sans font-bold text-[13px] rounded-xl transition-colors outline-none flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {skipLoading ? <Loader2 size={16} className="animate-spin" /> : "Skip Setup"}
+            </button>
+          </div>
+        </div>
+
+        {/* ================= HEADER NAVIGATION ================= */}
+        <header className="relative z-30 h-20 px-6 lg:px-12 flex items-center justify-between border-b border-zinc-200/50 dark:border-zinc-800/50 bg-white/50 dark:bg-[#050505]/50 backdrop-blur-xl sticky top-0 shadow-sm">
+          <Link href="/" className="inline-flex items-center gap-3 outline-none group hover:opacity-80 transition-opacity">
+            <Image src="/logo.png" alt="InfraCore" width={120} height={30} className="h-6 w-auto object-contain dark:invert" />
+          </Link>
+          <div className="flex items-center gap-2">
+            <AuthThemeToggle />
+            <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 -mr-2 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors outline-none lg:hidden">
+              <Menu size={22} />
+            </button>
+          </div>
+        </header>
+
         {/* ================= MOBILE DRAWER MENU ================= */}
         {isMobileMenuOpen && (
           <div 
@@ -294,286 +340,207 @@ export default function OnboardingPage() {
         </div>
 
 
-        {/* ================= LEFT PANEL (DESKTOP FIXED) ================= */}
-        <div className="hidden lg:flex w-[45%] max-w-[600px] bg-[#0c0c0e] flex-col justify-between p-12 xl:p-16 relative overflow-hidden h-full border-r border-zinc-800 shadow-2xl">
+        {/* ================= MAIN WIDE FORM CONTENT ================= */}
+        <main className="flex-1 relative z-10 w-full max-w-4xl mx-auto px-6 py-12 lg:py-20 flex flex-col justify-center">
           
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#18181b_1px,transparent_1px),linear-gradient(to_bottom,#18181b_1px,transparent_1px)] bg-[size:32px_32px] opacity-40" />
-          <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-[120px] -mt-20 -ml-20 pointer-events-none" />
-          <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
-
-          <div className="relative z-20">
-            <Link href="/" className="inline-flex items-center gap-3 group hover:opacity-80 transition-opacity outline-none">
-              <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 shadow-sm backdrop-blur-md group-hover:bg-white/10 transition-colors">
-                <Cpu size={20} className="text-blue-400" />
-              </div>
-              <Image src="/logo.png" alt="InfraCore" width={130} height={32} className="invert opacity-95" />
-            </Link>
-          </div>
-
-          <div className="relative z-10 max-w-md mt-10">
-            <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 mb-8 backdrop-blur-md">
-              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(96,165,250,0.8)]" />
-              <span className="font-google-sans text-[10px] font-bold text-blue-300 uppercase tracking-widest">Setup Protocol</span>
+          <div className="mb-12 text-center">
+            <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20 mb-6 backdrop-blur-md">
+              <div className="w-1.5 h-1.5 bg-blue-500 dark:bg-blue-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
             </div>
-            
-            <h1 className="font-google-sans text-4xl md:text-5xl xl:text-[3.5rem] font-bold text-white tracking-tight leading-[1.1] mb-6">
-              Initialize your <br/>
-              <span className="text-blue-400">workspace.</span>
+            <h1 className="font-google-sans text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-zinc-900 dark:text-white mb-4 leading-[1.1]">
+              Initialize your <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-blue-400 dark:from-blue-500 dark:to-blue-300">workspace.</span>
             </h1>
-            
-            <p className="font-outfit text-zinc-400 text-[16px] font-medium leading-relaxed mb-10 max-w-sm">
-              Infera Core requires baseline parameters to generate precise, actionable roadmaps and intelligence feeds tailored to your trajectory.
+            <p className="font-outfit text-zinc-500 dark:text-zinc-400 text-[16px] sm:text-[18px] font-medium max-w-2xl mx-auto leading-relaxed">
+              Finalize your parameters to generate precise, actionable roadmaps and intelligence feeds tailored to your trajectory.
             </p>
+          </div>
+
+          {/* The SaaS Form Card */}
+          <div className="w-full bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 p-6 sm:p-10 lg:p-12 rounded-[2rem] shadow-xl shadow-zinc-200/20 dark:shadow-none">
             
-            <div className="space-y-4">
-               <div className="flex items-start gap-4 bg-white/5 p-5 rounded-[1.5rem] border border-white/10 backdrop-blur-sm">
-                 <div className="w-10 h-10 rounded-xl bg-zinc-900 flex items-center justify-center shrink-0 border border-zinc-700 shadow-sm">
-                   <Target className="text-blue-400" size={18} />
-                 </div>
-                 <div>
-                     <h4 className="font-google-sans text-[13px] font-bold tracking-wide text-zinc-100 mb-1">Precision Routing</h4>
-                     <p className="font-outfit text-[14px] text-zinc-400 leading-relaxed">Maps your current stack directly against industry demands.</p>
-                 </div>
-               </div>
-               
-               <div className="flex items-start gap-4 bg-white/5 p-5 rounded-[1.5rem] border border-white/10 backdrop-blur-sm">
-                 <div className="w-10 h-10 rounded-xl bg-zinc-900 flex items-center justify-center shrink-0 border border-zinc-700 shadow-sm">
-                   <Network className="text-blue-400" size={18} />
-                 </div>
-                 <div>
-                     <h4 className="font-google-sans text-[13px] font-bold tracking-wide text-zinc-100 mb-1">Trajectory Mapping</h4>
-                     <p className="font-outfit text-[14px] text-zinc-400 leading-relaxed">Aligns academic metrics with high-premium roles.</p>
-                 </div>
-               </div>
-            </div>
-          </div>
+            {error && (
+              <div className="mb-8 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-4 rounded-xl flex items-start gap-3 text-red-600 dark:text-red-400 animate-in fade-in zoom-in-95">
+                <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                <p className="font-outfit text-[14px] font-medium leading-relaxed">{error}</p>
+              </div>
+            )}
 
-          <div className="relative z-10 flex items-center justify-between font-google-sans text-[10px] font-bold uppercase tracking-widest text-zinc-500 border-t border-zinc-800/80 pt-6 mt-12">
-             <div className="flex items-center gap-2">
-                 <Fingerprint size={14} className="text-blue-400" />
-                 End-to-End Encryption
-             </div>
-             <span>v2.1.0</span>
-          </div>
-        </div>
-
-        {/* ================= RIGHT PANEL (SCROLLABLE FORM) ================= */}
-        <div className="w-full lg:flex-1 h-full overflow-y-auto bg-[#fafafa] dark:bg-[#050505] relative custom-scrollbar">
-          
-          {/* Desktop Absolute Theme Toggle */}
-          <div className="hidden lg:block absolute top-8 right-8 z-50 bg-white/80 dark:bg-[#0c0c0e]/80 backdrop-blur-md rounded-full shadow-sm border border-zinc-200 dark:border-zinc-800">
-            <AuthThemeToggle />
-          </div>
-
-          {/* MOBILE HEADER */}
-          <div className="lg:hidden h-[72px] flex-shrink-0 flex items-center justify-between px-6 bg-white/80 dark:bg-[#050505]/80 backdrop-blur-xl border-b border-zinc-200 dark:border-zinc-800 z-30 sticky top-0 shadow-sm">
-            <Link href="/" className="inline-flex items-center gap-3 outline-none">
-              <Image src="/logo.png" alt="InfraCore" width={120} height={30} className="h-6 w-auto object-contain dark:invert" />
-            </Link>
-            <div className="flex items-center gap-2">
-              <AuthThemeToggle />
-              <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 -mr-2 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors outline-none">
-                <Menu size={22} />
-              </button>
-            </div>
-          </div>
-
-          <div className="w-full max-w-3xl mx-auto flex flex-col justify-center min-h-full p-6 md:p-12 py-12 lg:py-20">
+            <form ref={formRef} onSubmit={handleSubmit} className="space-y-12">
               
-              <div className="mb-10 text-center lg:text-left">
-                <h2 className="font-google-sans text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-white mb-3">Identity Profile</h2>
-                <p className="font-outfit text-zinc-500 dark:text-zinc-400 text-[16px] font-medium">Finalize your parameters to initialize the dashboard.</p>
-              </div>
-
-              {/* The SaaS Form Card */}
-              <div className="w-full bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 p-6 sm:p-10 rounded-[2rem] shadow-sm">
+              {/* Section 1: Basic Details */}
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800/80 pb-4">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-zinc-900 flex items-center justify-center border border-blue-100 dark:border-zinc-800">
+                      <User className="text-blue-600 dark:text-blue-400" size={16} />
+                  </div>
+                  <h3 className="font-google-sans text-[14px] font-bold uppercase tracking-wider text-zinc-900 dark:text-white">1. Core Identity</h3>
+                </div>
                 
-                {error && (
-                  <div className="mb-8 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-4 rounded-xl flex items-start gap-3 text-red-600 dark:text-red-400 animate-in fade-in zoom-in-95">
-                    <AlertCircle size={18} className="mt-0.5 shrink-0" />
-                    <p className="font-outfit text-[14px] font-medium leading-relaxed">{error}</p>
-                  </div>
-                )}
-
-                <form onSubmit={handleSubmit} className="space-y-12">
+                <div className="flex flex-col sm:flex-row gap-8 items-start">
                   
-                  {/* Section 1: Basic Details */}
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800/80 pb-4">
-                      <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center border border-zinc-200 dark:border-zinc-800">
-                          <User className="text-blue-600 dark:text-blue-400" size={16} />
-                      </div>
-                      <h3 className="font-google-sans text-[13px] font-bold uppercase tracking-wider text-zinc-900 dark:text-white">1. Core Identity</h3>
-                    </div>
-                    
-                    <div className="flex flex-col sm:flex-row gap-8 items-start">
-                      
-                      {/* Cloudinary Avatar Upload */}
-                      <div className="flex flex-col gap-3 shrink-0 w-full sm:w-auto">
-                        <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 pl-1">Avatar</label>
-                        <CldUploadWidget 
-                          uploadPreset={process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "infracore_avatars"}
-                          onSuccess={(result: any) => setAvatarUrl(result.info.secure_url)}
-                        >
-                          {({ open }) => (
-                            <div 
-                              onClick={() => open()}
-                              className="w-full sm:w-28 h-28 rounded-2xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-[#111113] flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-all overflow-hidden relative group shadow-sm"
-                            >
-                              {avatarUrl ? (
-                                <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                              ) : (
-                                <>
-                                  <UploadCloud size={24} className="text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
-                                  <span className="font-google-sans text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Upload</span>
-                                </>
-                              )}
-                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity backdrop-blur-sm">
-                                 <span className="font-google-sans text-white text-[10px] font-bold uppercase tracking-widest">Change</span>
-                              </div>
-                            </div>
-                          )}
-                        </CldUploadWidget>
-                      </div>
-
-                      <div className="flex-1 space-y-5 w-full">
-                        <div>
-                          <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1">Full Legal Name</label>
-                          <input 
-                            name="full_name" 
-                            required 
-                            className="font-outfit w-full h-14 px-5 rounded-2xl bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-[#111113] focus:border-blue-500 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 text-[15px] font-medium shadow-sm transition-all outline-none text-zinc-900 dark:text-white placeholder:text-zinc-400" 
-                            placeholder="e.g. Alan Turing" 
-                          />
-                        </div>
-                        <div>
-                          <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1">Target Engineering Domain</label>
-                          <LiveApiSingleSelect 
-                            name="target_domain" 
-                            apiType="general" 
-                            placeholder="Search domains (e.g. Backend Architecture)..." 
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Section 2: Career Stage Matrix */}
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800/80 pb-4">
-                      <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center border border-zinc-200 dark:border-zinc-800">
-                          <GraduationCap className="text-blue-600 dark:text-blue-400" size={16} />
-                      </div>
-                      <h3 className="font-google-sans text-[13px] font-bold uppercase tracking-wider text-zinc-900 dark:text-white">2. Career Stage Matrix</h3>
-                    </div>
-
-                    <div className="flex bg-zinc-100 dark:bg-zinc-900 p-1.5 rounded-2xl border border-zinc-200 dark:border-zinc-800/80">
-                      <button type="button" onClick={() => setRole('student')} className={`flex-1 py-3 text-sm font-google-sans font-bold rounded-xl transition-all ${role === 'student' ? 'bg-white dark:bg-[#111113] text-blue-600 shadow-sm border border-zinc-200/50 dark:border-zinc-700/50' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>University Student</button>
-                      <button type="button" onClick={() => setRole('professional')} className={`flex-1 py-3 text-sm font-google-sans font-bold rounded-xl transition-all ${role === 'professional' ? 'bg-white dark:bg-[#111113] text-blue-600 shadow-sm border border-zinc-200/50 dark:border-zinc-700/50' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>Working Professional</button>
-                    </div>
-
-                    <input type="hidden" name="role" value={role} />
-                    
-                    {role === 'student' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6 animate-in fade-in zoom-in-95">
-                      <div className="md:col-span-2">
-                        <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1">Institution</label>
-                        <LiveApiSingleSelect 
-                          name="college_name" 
-                          apiType="university" 
-                          placeholder="Search global institutions..." 
-                        />
-                      </div>
-                      <div>
-                        <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1">Degree / Major</label>
-                        <LiveApiSingleSelect 
-                          name="degree" 
-                          apiType="general" 
-                          placeholder="Search degrees (e.g. Computer Science)..." 
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1 text-center sm:text-left">Grad Year</label>
-                          <input 
-                            name="graduation_year" 
-                            type="number" 
-                            required 
-                            className="font-outfit w-full h-14 px-4 rounded-2xl bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-[#111113] focus:border-blue-500 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 text-[15px] font-medium shadow-sm transition-all outline-none text-zinc-900 dark:text-white placeholder:text-zinc-400 text-center sm:text-left" 
-                            placeholder="2026" 
-                          />
-                        </div>
-                        <div>
-                          <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1 text-center sm:text-left">Semester</label>
-                          <input 
-                            name="current_semester" 
-                            type="number" 
-                            required 
-                            className="font-outfit w-full h-14 px-4 rounded-2xl bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-[#111113] focus:border-blue-500 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 text-[15px] font-medium shadow-sm transition-all outline-none text-zinc-900 dark:text-white placeholder:text-zinc-400 text-center sm:text-left" 
-                            placeholder="e.g. 5" 
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    )}
-                  </div>
-
-                  {/* Section 3: Technical Arsenal */}
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800/80 pb-4">
-                      <div className="w-8 h-8 rounded-lg bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center border border-zinc-200 dark:border-zinc-800">
-                          <Code2 className="text-blue-600 dark:text-blue-400" size={16} />
-                      </div>
-                      <h3 className="font-google-sans text-[13px] font-bold uppercase tracking-wider text-zinc-900 dark:text-white">3. Technical Arsenal</h3>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 gap-6">
-                      <div>
-                        <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1 flex items-center justify-between">
-                          Current Skills
-                          <span className="text-[9px] font-bold text-blue-500/60 lowercase italic tracking-normal">(Optional)</span>
-                        </label>
-                        <LiveApiMultiSelect 
-                          name="skills" 
-                          placeholder="Search and add skills (e.g. Python, React)..." 
-                        />
-                      </div>
-                      <div>
-                        <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1 flex items-center justify-between">
-                          Core Interests
-                          <span className="text-[9px] font-bold text-blue-500/60 lowercase italic tracking-normal">(Optional)</span>
-                        </label>
-                        <LiveApiMultiSelect 
-                          name="core_interests" 
-                          placeholder="Search and add interests (e.g. Distributed Systems)..." 
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Action Area */}
-                  <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800/60">
-                    <button 
-                      type="submit"
-                      disabled={loading}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-google-sans font-bold h-16 rounded-2xl transition-all shadow-[0_8px_30px_rgba(37,99,235,0.25)] active:scale-[0.98] flex items-center justify-center gap-3 text-[14px] uppercase tracking-widest outline-none disabled:opacity-70"
+                  {/* Cloudinary Avatar Upload */}
+                  <div className="flex flex-col gap-3 shrink-0 w-full sm:w-auto">
+                    <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 pl-1">Avatar</label>
+                    <CldUploadWidget 
+                      uploadPreset={process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "infracore_avatars"}
+                      onSuccess={(result: any) => setAvatarUrl(result.info.secure_url)}
                     >
-                      {loading ? (
-                        <>
-                          <Loader2 className="animate-spin" size={20} />
-                          Processing...
-                        </>
-                      ) : (
-                        <>
-                          Synchronize & Deploy <ArrowRight size={20} />
-                        </>
+                      {({ open }) => (
+                        <div 
+                          onClick={() => open()}
+                          className="w-full sm:w-32 h-32 rounded-2xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-[#111113] flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-all overflow-hidden relative group shadow-sm"
+                        >
+                          {avatarUrl ? (
+                            <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                          ) : (
+                            <>
+                              <UploadCloud size={24} className="text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
+                              <span className="font-google-sans text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Upload</span>
+                            </>
+                          )}
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity backdrop-blur-sm">
+                             <span className="font-google-sans text-white text-[10px] font-bold uppercase tracking-widest">Change</span>
+                          </div>
+                        </div>
                       )}
-                    </button>
+                    </CldUploadWidget>
                   </div>
-                </form>
+
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-5 w-full">
+                    <div>
+                      <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1">Full Legal Name</label>
+                      <input 
+                        name="full_name" 
+                        className="font-outfit w-full h-14 px-5 rounded-2xl bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-[#111113] focus:border-blue-500 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 text-[15px] font-medium shadow-sm transition-all outline-none text-zinc-900 dark:text-white placeholder:text-zinc-400" 
+                        placeholder="e.g. Alan Turing" 
+                      />
+                    </div>
+                    <div>
+                      <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1">Target Engineering Domain</label>
+                      <LiveApiSingleSelect 
+                        name="target_domain" 
+                        apiType="general" 
+                        placeholder="Search domains (e.g. Backend Architecture)..." 
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
+
+              {/* Section 2: Career Stage Matrix */}
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800/80 pb-4">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-zinc-900 flex items-center justify-center border border-blue-100 dark:border-zinc-800">
+                      <GraduationCap className="text-blue-600 dark:text-blue-400" size={16} />
+                  </div>
+                  <h3 className="font-google-sans text-[14px] font-bold uppercase tracking-wider text-zinc-900 dark:text-white">2. Career Stage Matrix</h3>
+                </div>
+
+                <div className="flex bg-zinc-100 dark:bg-zinc-900 p-1.5 rounded-2xl border border-zinc-200 dark:border-zinc-800/80 max-w-md">
+                  <button type="button" onClick={() => setRole('student')} className={`flex-1 py-3 text-sm font-google-sans font-bold rounded-xl transition-all ${role === 'student' ? 'bg-white dark:bg-[#111113] text-blue-600 shadow-sm border border-zinc-200/50 dark:border-zinc-700/50' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>University Student</button>
+                  <button type="button" onClick={() => setRole('professional')} className={`flex-1 py-3 text-sm font-google-sans font-bold rounded-xl transition-all ${role === 'professional' ? 'bg-white dark:bg-[#111113] text-blue-600 shadow-sm border border-zinc-200/50 dark:border-zinc-700/50' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}>Working Professional</button>
+                </div>
+
+                <input type="hidden" name="role" value={role} />
+                
+                {role === 'student' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in zoom-in-95">
+                  <div className="md:col-span-2">
+                    <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1">Institution</label>
+                    <LiveApiSingleSelect 
+                      name="college_name" 
+                      apiType="university" 
+                      placeholder="Search global institutions..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1">Degree / Major</label>
+                    <LiveApiSingleSelect 
+                      name="degree" 
+                      apiType="general" 
+                      placeholder="Search degrees (e.g. Computer Science)..." 
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1 text-center sm:text-left">Grad Year</label>
+                      <input 
+                        name="graduation_year" 
+                        type="number" 
+                        className="font-outfit w-full h-14 px-4 rounded-2xl bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-[#111113] focus:border-blue-500 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 text-[15px] font-medium shadow-sm transition-all outline-none text-zinc-900 dark:text-white placeholder:text-zinc-400 text-center sm:text-left" 
+                        placeholder="2026" 
+                      />
+                    </div>
+                    <div>
+                      <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1 text-center sm:text-left">Semester</label>
+                      <input 
+                        name="current_semester" 
+                        type="number" 
+                        className="font-outfit w-full h-14 px-4 rounded-2xl bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 focus:bg-white dark:focus:bg-[#111113] focus:border-blue-500 dark:focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 text-[15px] font-medium shadow-sm transition-all outline-none text-zinc-900 dark:text-white placeholder:text-zinc-400 text-center sm:text-left" 
+                        placeholder="e.g. 5" 
+                      />
+                    </div>
+                  </div>
+                </div>
+                )}
+              </div>
+
+              {/* Section 3: Technical Arsenal */}
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800/80 pb-4">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-zinc-900 flex items-center justify-center border border-blue-100 dark:border-zinc-800">
+                      <Code2 className="text-blue-600 dark:text-blue-400" size={16} />
+                  </div>
+                  <h3 className="font-google-sans text-[14px] font-bold uppercase tracking-wider text-zinc-900 dark:text-white">3. Technical Arsenal</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1 flex items-center justify-between">
+                      Current Skills
+                      <span className="text-[9px] font-bold text-blue-500/60 lowercase italic tracking-normal">(Optional)</span>
+                    </label>
+                    <LiveApiMultiSelect 
+                      name="skills" 
+                      placeholder="Search and add skills..." 
+                    />
+                  </div>
+                  <div>
+                    <label className="font-google-sans text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 block pl-1 flex items-center justify-between">
+                      Core Interests
+                      <span className="text-[9px] font-bold text-blue-500/60 lowercase italic tracking-normal">(Optional)</span>
+                    </label>
+                    <LiveApiMultiSelect 
+                      name="core_interests" 
+                      placeholder="Search and add interests..." 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Area */}
+              <div className="pt-8 border-t border-zinc-200 dark:border-zinc-800/60 mt-12 flex justify-end">
+                <button 
+                  type="submit"
+                  disabled={loading || skipLoading}
+                  className="w-full sm:w-auto px-12 bg-blue-600 hover:bg-blue-700 text-white font-google-sans font-bold h-16 rounded-full transition-all shadow-[0_10px_30px_rgba(37,99,235,0.25)] active:scale-[0.98] flex items-center justify-center gap-3 text-[15px] uppercase tracking-widest outline-none disabled:opacity-70"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="animate-spin" size={20} />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      Synchronize & Deploy <ArrowRight size={20} />
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </form>
           </div>
-        </div>
+        </main>
       </div>
     </>
   )

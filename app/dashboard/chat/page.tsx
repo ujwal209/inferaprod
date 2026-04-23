@@ -1,18 +1,16 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useMemo, ChangeEvent, KeyboardEvent, MouseEvent } from 'react'
+import React, { useState, useEffect, useRef, useMemo, MouseEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { toast } from 'sonner'
 import { 
   getSessions, deleteSession, renameSession, deleteSessions, initializeSession, unarchiveSession 
 } from '@/app/actions/coaching'
-// 🚀 IMPORT THE UPLOADER UTILITY
-import { uploadFilesDirectly } from './[sessionId]/chat-utils'
 import { 
   Menu, X, Loader2, Plus, Search, Trash2, Edit3, 
-  Archive, Clock, ChevronDown, ChevronRight, CheckSquare, 
-  Square, MessageSquare, Paperclip, Send, Zap, Globe, FileText, RefreshCw, ArchiveRestore
+  Archive, ChevronDown, ChevronRight, CheckSquare, 
+  Square, MessageSquare, Send, Zap, Globe, ArchiveRestore
 } from 'lucide-react'
 
 // --- 1. RENAME MODAL COMPONENT (Self-Contained) ---
@@ -86,14 +84,12 @@ const SessionItem = ({ s, isBulkMode, isSelected, onToggleSelect, onRename, onDe
 }
 
 // --- 3. PROMPT BAR COMPONENT (Self-Contained) ---
-const IntegratedPromptBar = ({ onSubmit, isGenerating }: { onSubmit: (text: string, files: File[]) => void, isGenerating: boolean }) => {
+const IntegratedPromptBar = ({ onSubmit, isGenerating }: { onSubmit: (text: string) => void, isGenerating: boolean }) => {
   const [text, setText] = useState('')
-  const [files, setFiles] = useState<File[]>([])
   const [deepSearch, setDeepSearch] = useState(false)
   const [webAccess, setWebAccess] = useState(false)
   
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value)
@@ -110,58 +106,21 @@ const IntegratedPromptBar = ({ onSubmit, isGenerating }: { onSubmit: (text: stri
     }
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setFiles(prev => [...prev, ...Array.from(e.target.files as FileList)])
-    }
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
-
   const handleAction = () => {
     if (isGenerating) return;
-    if (text.trim() || files.length > 0) {
+    if (text.trim()) {
       const submittedText = text;
-      const submittedFiles = [...files];
       setText('');
-      setFiles([]);
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
-      onSubmit(submittedText, submittedFiles);
+      onSubmit(submittedText);
     }
   }
 
   return (
     <div className="w-full bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 focus-within:border-blue-500 rounded-xl transition-all duration-300 shadow-sm flex flex-col relative overflow-hidden min-w-0">
       
-      {/* Files Preview */}
-      {files.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-3 pt-3 pb-1 w-full min-w-0">
-          {files.map((file, idx) => (
-            <div key={idx} className="relative flex items-center gap-2 p-1.5 pr-3 rounded-md bg-zinc-50 dark:bg-[#111113] border border-zinc-200 dark:border-zinc-700 max-w-[140px] sm:max-w-[180px] group shrink-0">
-              {file.type.startsWith('image/') ? (
-                <div className="w-6 h-6 shrink-0 rounded bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
-                  <img src={URL.createObjectURL(file)} alt="preview" className="w-full h-full object-cover" />
-                </div>
-              ) : (
-                <div className="w-6 h-6 shrink-0 rounded bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
-                  <FileText size={12} />
-                </div>
-              )}
-              <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400 truncate w-full">{file.name}</span>
-              <button onClick={() => setFiles(f => f.filter((_, i) => i !== idx))} className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-full flex items-center justify-center text-zinc-400 hover:text-red-500 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                <X size={10} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Input Area */}
       <div className="flex items-end gap-2 px-3 pt-3 pb-2 w-full min-w-0">
-        <input type="file" multiple className="hidden" ref={fileInputRef} onChange={handleFileSelect} />
-        <button onClick={() => fileInputRef.current?.click()} disabled={isGenerating} className="h-9 w-9 shrink-0 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all disabled:opacity-50">
-          <Paperclip size={18} />
-        </button>
-
         <textarea
           ref={textareaRef}
           value={text}
@@ -175,9 +134,9 @@ const IntegratedPromptBar = ({ onSubmit, isGenerating }: { onSubmit: (text: stri
         
         <button
           onClick={handleAction}
-          disabled={isGenerating || (!text.trim() && files.length === 0)}
+          disabled={isGenerating || !text.trim()}
           className={`h-9 w-9 shrink-0 flex items-center justify-center rounded-md transition-all duration-300 ${
-            (!text.trim() && files.length === 0)
+            !text.trim()
               ? 'bg-zinc-100 dark:bg-zinc-900 text-zinc-400 pointer-events-none'
               : 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:opacity-90 shadow-sm'
           }`}
@@ -218,27 +177,15 @@ export default function NewChatLanding() {
   const refreshSessions = async () => { setSessions(await getSessions()); };
   useEffect(() => { refreshSessions(); }, []);
 
-  // 🚀 FIXED: UPLOADS FILES FIRST, THEN REDIRECTS WITH DATA
-  const submitPrompt = async (text: string, attachedFiles: File[] = []) => {
-    if ((!text.trim() && attachedFiles.length === 0) || loading) return;
+  const submitPrompt = async (text: string) => {
+    if (!text.trim() || loading) return;
     setLoading(true);
     
     try {
-      const newId = await initializeSession(text || "Uploaded File");
-      let fileQuery = '';
-      
-      // Upload files to Cloudinary first
-      if (attachedFiles.length > 0) {
-          const uploadedUrls = await uploadFilesDirectly(attachedFiles, newId);
-          if (uploadedUrls.length > 0) {
-              fileQuery = `&initialFiles=${encodeURIComponent(JSON.stringify(uploadedUrls))}`;
-          }
-      }
-      
+      const newId = await initializeSession(text);
       const promptQuery = text ? `?initialPrompt=${encodeURIComponent(text)}` : '?initialPrompt=';
       
-      // Safely transition with both text and securely hosted files
-      router.push(`/dashboard/chat/${newId}${promptQuery}${fileQuery}`);
+      router.push(`/dashboard/chat/${newId}${promptQuery}`);
     } catch (err) {
       console.error(err);
       toast.error("Failed to initialize session.");
@@ -403,14 +350,14 @@ export default function NewChatLanding() {
               </h1>
               
               <p className="text-[14px] text-zinc-500 dark:text-zinc-400 mb-8 sm:mb-10 max-w-sm px-2 break-words">
-                Ask a question, attach documents for analysis, or start a deep dive into a new topic.
+                Ask a question, analyze data, or start a deep dive into a new topic.
               </p>
 
               <div className="w-full min-w-0">
                 {loading ? (
                   <div className="flex flex-col items-center justify-center gap-3 py-6 bg-zinc-50 dark:bg-[#111113] rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm w-full mx-auto animate-in fade-in zoom-in-95 duration-300">
                     <Loader2 size={24} className="animate-spin text-blue-500" />
-                    <span className="font-medium text-[13px] text-zinc-600 dark:text-zinc-400">Uploading securely & configuring workspace...</span>
+                    <span className="font-medium text-[13px] text-zinc-600 dark:text-zinc-400">Configuring workspace...</span>
                   </div>
                 ) : (
                   <IntegratedPromptBar onSubmit={submitPrompt} isGenerating={false} />

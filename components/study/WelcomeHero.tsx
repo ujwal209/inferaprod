@@ -134,14 +134,6 @@ export const WelcomeHero = ({
                    ref={fileInputRef} 
                    onChange={handleFileSelect} 
                  />
-                 <button 
-                   type="button" 
-                   onClick={() => fileInputRef.current?.click()}
-                   className="p-1.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-md transition-colors"
-                   title="Attach Documents"
-                 >
-                   <Paperclip size={16} />
-                 </button>
                </div>
                
                {/* Uploaded Files Preview */}

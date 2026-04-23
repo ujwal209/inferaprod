@@ -16,10 +16,6 @@ import {
   getStudySessions, deleteStudySession, renameStudySession, 
   initializeSession, sendStudyMessage 
 } from '@/app/actions/study'
-import { uploadFilesDirectly } from '@/utils/uploadHelper'
-import { createClient } from '@/utils/supabase/client'
-
-const supabase = createClient();
 
 export default function StudyLandingPage() {
   const router = useRouter();
@@ -27,12 +23,9 @@ export default function StudyLandingPage() {
   // 🚀 STATE
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  
   const [filter, setFilter] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showQuizHistory, setShowQuizHistory] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -51,10 +44,6 @@ export default function StudyLandingPage() {
   }, [fetchSessions]);
 
   // 🚀 HANDLERS
-  const handleRemoveFile = (idx: number) => {
-    setUploadedFiles(prev => prev.filter((_, i) => i !== idx));
-  };
-
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     try {
@@ -80,13 +69,12 @@ export default function StudyLandingPage() {
       abortControllerRef.current.abort();
     }
     setLoading(false);
-    setIsUploading(false);
   };
 
   // 🚀 INITIALIZE NEW SESSION
   const onInitSubmit = async (e: React.FormEvent, files: File[], formData: FormData) => {
     e.preventDefault();
-    if (loading || isUploading) return;
+    if (loading) return;
 
     const subject = formData.get('subject') as string;
     const level = formData.get('level') as string;
@@ -100,36 +88,16 @@ export default function StudyLandingPage() {
       // 1. Create the session in DB
       const targetSessionId = await initializeSession(userMessage.slice(0, 35));
 
-      // 2. Upload Files if attached
-      let uploadedUrls: string[] = [];
-      if (files.length > 0) {
-        setIsUploading(true);
-        abortControllerRef.current = new AbortController();
-        try {
-          uploadedUrls = await uploadFilesDirectly(files, targetSessionId, abortControllerRef.current.signal);
-        } catch (err: any) {
-          if (err.name === 'AbortError') {
-            console.log('Upload aborted');
-            return;
-          }
-          throw err;
-        } finally {
-          setIsUploading(false);
-          abortControllerRef.current = null;
-        }
-      }
+      // 2. Fire the first AI message with empty files array
+      await sendStudyMessage(targetSessionId, userMessage, []);
 
-      // 3. Fire the first AI message (We await this so the UI is ready when redirected)
-      await sendStudyMessage(targetSessionId, userMessage, uploadedUrls);
-
-      // 4. Redirect to the newly created session page
+      // 3. Redirect to the newly created session page
       router.push(`/dashboard/chat/study/${targetSessionId}`);
       
     } catch (err: any) {
       console.error(err);
       toast.error("Failed to initialize workspace.");
       setLoading(false);
-      setIsUploading(false);
     }
   };
 
@@ -144,7 +112,7 @@ export default function StudyLandingPage() {
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.5); }
       `}} />
 
-      {/* 🚀 FIXED RESPONSIVE SHELL (100dvh strictly locks the UI to prevent mobile Safari blowout) */}
+      {/* 🚀 FIXED RESPONSIVE SHELL */}
       <div className="fixed inset-0 top-[56px] sm:top-[64px] flex w-full h-[calc(100dvh-56px)] sm:h-[calc(100dvh-64px)] overflow-hidden bg-white dark:bg-[#050505] font-inter text-zinc-900 dark:text-zinc-100 antialiased min-w-0">
 
         {/* 🚀 SIDEBAR (Desktop) */}
@@ -180,13 +148,13 @@ export default function StudyLandingPage() {
                   <Loader2 size={28} className="animate-spin text-blue-600 dark:text-blue-500" />
                   <div className="flex flex-col gap-1">
                     <span className="font-semibold text-[15px] text-zinc-900 dark:text-white">
-                      {isUploading ? "Uploading Documents..." : "Preparing Workspace..."}
+                      Preparing Workspace...
                     </span>
                     <span className="text-sm text-zinc-500 dark:text-zinc-400">
                       Configuring AI and setting up your environment.
                     </span>
                   </div>
-                  {(loading || isUploading) && (
+                  {loading && (
                     <button onClick={onStop} className="mt-2 px-4 py-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors bg-zinc-200/50 dark:bg-zinc-800/50 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-md">
                       Cancel
                     </button>
@@ -198,11 +166,7 @@ export default function StudyLandingPage() {
                 <WelcomeHero 
                   onInitSubmit={onInitSubmit} 
                   loading={loading} 
-                  isUploading={isUploading} 
                   onStop={onStop} 
-                  uploadedFiles={uploadedFiles} 
-                  removeFile={handleRemoveFile}
-                  setUploadedFiles={setUploadedFiles} // Passed down to allow direct updates if needed by Hero
                 />
               </div>
             )}
