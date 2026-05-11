@@ -34,7 +34,6 @@ function ActiveStudySessionPage() {
   const [messages, setMessages] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
   const [sessionData, setSessionData] = useState<any>(null);
-  const [currentUser, setCurrentUser] = useState<any>(null);
   
   const [loading, setLoading] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(!!activeSessionId); 
@@ -48,7 +47,6 @@ function ActiveStudySessionPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
-  const [isForking, setIsForking] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
@@ -65,8 +63,7 @@ function ActiveStudySessionPage() {
   const refreshSessions = async () => { setSessions(await getSessions()); };
 
   useEffect(() => { 
-    const fetchUser = async () => { const { data: { user } } = await supabase.auth.getUser(); setCurrentUser(user); }
-    fetchUser(); refreshSessions(); 
+    refreshSessions(); 
   }, []);
 
   useEffect(() => {
@@ -87,7 +84,6 @@ function ActiveStudySessionPage() {
       let parsedUrls: string[] = [];
       if (initialFilesRaw) {
           try {
-              // Next.js searchParams are already decoded. Direct parse fixes the corruption bug!
               parsedUrls = JSON.parse(initialFilesRaw);
           } catch(e) { 
               console.error("Failed to parse initial files", e); 
@@ -96,7 +92,6 @@ function ActiveStudySessionPage() {
 
       submitPrompt(initialPrompt || "", [], parsedUrls);
       
-      // Clean URL so it doesn't re-fire on refresh
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.delete('initialPrompt');
       newUrl.searchParams.delete('initialFiles');
@@ -136,7 +131,6 @@ function ActiveStudySessionPage() {
     
     let finalFileMarkdown = "";
 
-    // Render Cloudinary URLs from Landing Page immediately
     if (preUploadedUrls.length > 0) {
         finalFileMarkdown += preUploadedUrls.map(url => {
             const urlLower = url.toLowerCase();
@@ -145,7 +139,6 @@ function ActiveStudySessionPage() {
         }).join("");
     }
 
-    // Render local attachments immediately
     if (attachedFiles.length > 0) {
         finalFileMarkdown += attachedFiles.map(f => f.type.startsWith('image/') ? `\n\n![${f.name}](${URL.createObjectURL(f)})` : `\n\n[${f.name}](attachment)`).join("");
     }
@@ -162,7 +155,6 @@ function ActiveStudySessionPage() {
 
       let uploadedUrls: string[] = [...preUploadedUrls];
       
-      // Upload local files to Cloudinary
       if (attachedFiles.length > 0) {
           const newUrls = await uploadFilesDirectly(attachedFiles, targetId as string);
           uploadedUrls = [...uploadedUrls, ...newUrls];
@@ -222,23 +214,10 @@ function ActiveStudySessionPage() {
     }
   };
 
-  const handleDuplicate = async () => {
-    if (!activeSessionId) return;
-    setIsForking(true);
-    toast.promise(duplicateSession(activeSessionId), {
-      loading: 'Cloning session...',
-      success: (newId) => { router.push(`/dashboard/chat/${newId}`); return "Session cloned."; },
-      error: 'Cloning failed.',
-      finally: () => setIsForking(false)
-    });
-  };
-
   const handleDelete = async (e: MouseEvent | KeyboardEvent, id: string) => {
     e.stopPropagation(); await deleteSession(id); refreshSessions();
     if(id === activeSessionId) router.push('/dashboard/chat');
   }
-
-  const isOwner = currentUser?.id === sessionData?.user_id;
 
   return (
     <>
@@ -287,7 +266,6 @@ function ActiveStudySessionPage() {
 
         <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-[#050505] relative h-full w-full">
           
-          {/* 🚀 FIXED: Removed absolute top-0. This prevents overlapping! */}
           <header className="h-14 border-b border-zinc-200 dark:border-zinc-800/80 bg-white/90 dark:bg-[#050505]/90 flex items-center justify-between px-4 sm:px-6 shrink-0 w-full min-w-0 z-10">
             <div className="flex items-center gap-3 min-w-0 flex-1">
               <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-1.5 -ml-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors shrink-0"><Menu size={18} /></button>
@@ -296,12 +274,7 @@ function ActiveStudySessionPage() {
             </div>
             
             <div className="flex items-center gap-2 shrink-0">
-              {activeSessionId && !isOwner && (
-                <button onClick={handleDuplicate} disabled={isForking} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-md transition-all active:scale-95 font-medium text-xs shrink-0">
-                  {isForking ? <Loader2 size={14} className="animate-spin" /> : <GitFork size={14} />} <span className="hidden sm:inline">Clone</span>
-                </button>
-              )}
-              {activeSessionId && isOwner && (
+              {activeSessionId && (
                 <div className="flex items-center gap-1 shrink-0">
                   <button onClick={handleShare} className="flex items-center gap-1.5 px-2.5 py-1.5 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors font-medium text-xs"><Share2 size={14} /><span className="hidden sm:inline">Share</span></button>
                   <button onClick={() => handleArchiveToggle(activeSessionId as string, true)} className="flex items-center gap-1.5 px-2.5 py-1.5 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors font-medium text-xs"><Archive size={14} /><span className="hidden sm:inline">Archive</span></button>
@@ -327,7 +300,6 @@ function ActiveStudySessionPage() {
                 </main>
               ) : (
                 <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 md:p-8 scroll-smooth custom-scrollbar w-full min-w-0">
-                  {/* 🚀 FIXED: Added pt-2 so the first message isn't mashed against the ceiling */}
                   <div className="max-w-3xl mx-auto w-full min-w-0 flex flex-col pt-2 pb-4">
                     {messages.map((m, i) => (
                       <ChatMessageItem key={i} m={m} index={i} isLast={i === messages.length - 1} loading={loading} isTypingGlobal={isTyping} displayedContent={m.content} onRegenerate={() => handleEditSubmit(i-1, messages[i-1].content)} onEditSubmit={handleEditSubmit} sessionId={activeSessionId} />
@@ -340,17 +312,8 @@ function ActiveStudySessionPage() {
               {messages.length > 0 && (
                 <div className="shrink-0 bg-gradient-to-t from-white via-white dark:from-[#050505] dark:via-[#050505] to-transparent pt-4 pb-4 sm:pb-6 w-full min-w-0">
                   <div className="max-w-3xl mx-auto w-full px-4 sm:px-6 min-w-0 pointer-events-auto">
-                    {activeSessionId && !isOwner && sessionData ? (
-                      <div className="flex flex-col items-center gap-2.5 py-4 px-6 bg-zinc-50 dark:bg-[#111113] rounded-lg border border-zinc-200 dark:border-zinc-800 w-full min-w-0 shadow-sm">
-                        <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 min-w-0"><Lock size={14} className="shrink-0" /><span className="font-semibold text-sm truncate">View-Only Mode</span></div>
-                        <p className="text-[13px] text-zinc-600 dark:text-zinc-400 text-center max-w-sm w-full break-words">You are viewing a shared session. Duplicate this session to your own workspace to interact.</p>
-                        <button onClick={handleDuplicate} disabled={isForking} className="mt-1 flex items-center gap-2 px-4 py-2 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-md transition-all active:scale-[0.98] font-medium text-[13px] disabled:opacity-50 shrink-0">
-                          {isForking ? <Loader2 size={14} className="animate-spin" /> : <GitFork size={14} />} <span>Clone Session</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <ChatPromptBar onSubmit={(text, files) => submitPrompt(text, files, [])} isGenerating={loading} onStop={handleStop} />
-                    )}
+                    {/* 🚀 FIXED: View-Only logic completely removed. Always renders ChatPromptBar now! */}
+                    <ChatPromptBar onSubmit={(text, files) => submitPrompt(text, files, [])} isGenerating={loading} onStop={handleStop} />
                   </div>
                 </div>
               )}
