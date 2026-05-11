@@ -3,10 +3,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/utils/supabase/server";
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
-import { createReactAgent } from "@langchain/langgraph/prebuilt";
 
 import { executableTools, webSearchTool } from './agent/tools'
-import { getGeminiModel, getGroqModel, geminiQueue, groqQueue } from './agent/providers'
+import { getGroqModel, groqQueue } from './agent/providers'
 import { GENERAL_PROMPT } from './agent/prompts'
 
 const extractServerSources = (content: string, messages?: BaseMessage[]) => {
@@ -156,15 +155,13 @@ export async function getSessionById(id: string) {
 }
 
 // ==========================================
-// 🚀 NATIVE LANGGRAPH REACT AGENT
+// 🚀 NATIVE LANGGRAPH REACT AGENT (GROQ ONLY)
 // ==========================================
-
-type ModelTier = 'groq' | 'gemini-2.5-flash' | 'gemini-2.5-pro';
 
 export async function sendCoachingMessage(
   sessionId: string, 
   content: string, 
-  model: string = 'gpt-4o', 
+  model: string = 'llama-3.3-70b-versatile', 
   fileUrls: string[] = [], 
   truncateIndex?: number
 ) {
@@ -203,39 +200,17 @@ export async function sendCoachingMessage(
   const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg'];
   const docExtensions = ['.pdf', '.ppt', '.pptx', '.doc', '.docx', '.txt', '.csv', '.rtf'];
   
-  const safeInvoke = async (msgs: BaseMessage[], withTools: boolean = false, targetTier: ModelTier) => {
+  const safeInvoke = async (msgs: BaseMessage[], withTools: boolean = false) => {
       let attempts = 0;
       let lastError: any;
-      let activeTier = targetTier;
       
-      // 🚀 STRICT FALLBACK LOGIC: Gemini is King, Groq is the Backup
-      const fallbackSequence: Record<ModelTier, ModelTier> = {
-          'gemini-2.5-flash': 'groq',
-          'gemini-2.5-pro': 'gemini-2.5-flash',
-          'groq': 'gemini-2.5-flash'
-      };
-
-      // Force Gemini exclusively if there's a document (Groq struggles heavily with raw PDF parsing)
-      if (hasPdfOrDoc) {
-          fallbackSequence['gemini-2.5-flash'] = 'gemini-2.5-flash'; 
-          fallbackSequence['groq'] = 'gemini-2.5-flash'; 
-      }
-
       while (attempts < 4) {
-          let tempModel;
-          let activeQueue;
-          
-          if (activeTier === 'groq') {
-              tempModel = getGroqModel(hasImage, false); 
-              activeQueue = groqQueue;
-          } else {
-              tempModel = getGeminiModel(activeTier as 'gemini-2.5-flash' | 'gemini-2.5-pro');
-              activeQueue = geminiQueue;
-          }
+          const tempModel = getGroqModel(hasImage || hasPdfOrDoc, false);
+          const activeQueue = groqQueue;
 
           // Groq rejects array formatting for AI messages, fix them before invoking
           const formattedMsgs = msgs.map(msg => {
-              if (activeTier === 'groq' && msg._getType() === 'ai') {
+              if (msg._getType() === 'ai') {
                   let textContent = msg.content;
                   if (Array.isArray(textContent)) {
                       textContent = textContent.map((c: any) => c.text || '').join('');
@@ -260,11 +235,9 @@ export async function sendCoachingMessage(
                   const failedKey = (tempModel as any)._inferaKey;
                   const isServerOverload = errorStr.includes('503') || errorStr.includes('Unavailable');
                   
-                  console.log(`⚠️ Network Drop [${isServerOverload ? '503 Overload' : '429 Rate Limit'}] on ${activeTier}. Penalizing key ...${failedKey?.slice(-4) || 'unknown'}`);
+                  console.log(`⚠️ Network Drop [${isServerOverload ? '503 Overload' : '429 Rate Limit'}] on Groq. Penalizing key ...${failedKey?.slice(-4) || 'unknown'}`);
                   
                   activeQueue.reportFailure(failedKey, 60); 
-                  
-                  activeTier = fallbackSequence[activeTier];
                   attempts++;
 
                   if (isServerOverload) {
@@ -291,7 +264,7 @@ export async function sendCoachingMessage(
       hasImage = true;
       fileMarkdown += `\n\n![Uploaded Image](${url})`; 
       currentMessageParts.push({ type: 'image_url', image_url: { url } });
-      console.log(`🖼️ [IMAGE DETECTED] Routing via Llama-4-Scout (Groq)...`);
+      console.log(`🖼️ [IMAGE DETECTED] Routing via Groq Vision...`);
     } 
     else if (isDoc) {
       hasPdfOrDoc = true;
@@ -311,7 +284,7 @@ export async function sendCoachingMessage(
           data: b64Data
         });
 
-        console.log(`📄 [EXTRACTING ${mimeType.toUpperCase()}...] strictly via Gemini 2.5 Flash`);
+        console.log(`📄 [EXTRACTING ${mimeType.toUpperCase()}...] via Groq Vision`);
         const extractMsgs = [new HumanMessage({
             content: [
                 {
@@ -321,7 +294,7 @@ export async function sendCoachingMessage(
                 { type: 'text', text: `Extract and summarize all the text from this document exactly as it appears. Provide only the text.` }
             ]
         })];
-        const extractRes = await safeInvoke(extractMsgs, false, 'gemini-2.5-flash') as AIMessage;
+        const extractRes = await safeInvoke(extractMsgs, false) as AIMessage;
         const extractedText = typeof extractRes.content === 'string' ? extractRes.content : "";
         pdfContextBuffer += `\n\n[AUTO-EXTRACTED DOCUMENT CONTEXT FOR '${fileName}']:\n${extractedText}\n[END OF DOCUMENT CONTEXT]\n`;
       } catch (e) {
@@ -355,15 +328,13 @@ export async function sendCoachingMessage(
   const systemMessage = new SystemMessage(strictSystemPrompt);
 
   try {
-    // 🚀 THE FIX: Force Gemini 2.5 Flash as the absolute primary tier unless it's an image.
-    let initialTier: ModelTier = hasImage ? 'groq' : 'gemini-2.5-flash'; 
     const canUseTools = !hasImage && !hasPdfOrDoc;
     inputMessages = [systemMessage, ...inputMessages];
     
     let aiMessage: AIMessage | undefined;
 
     try {
-      aiMessage = await safeInvoke(inputMessages, canUseTools, initialTier) as AIMessage;
+      aiMessage = await safeInvoke(inputMessages, canUseTools) as AIMessage;
       
     } catch (e: any) {
       if (!canUseTools) throw e;
@@ -416,8 +387,8 @@ export async function sendCoachingMessage(
         name: "web_search",
       }));
       
-      console.log("⚠️ Utilizing Fallback Model for recovery completion!");
-      aiMessage = await safeInvoke(inputMessages, false, initialTier) as AIMessage;
+      console.log("⚠️ Utilizing Retry for recovery completion!");
+      aiMessage = await safeInvoke(inputMessages, false) as AIMessage;
     }
 
     const textContentRaw = typeof aiMessage?.content === 'string' ? aiMessage.content : "";
@@ -460,7 +431,7 @@ export async function sendCoachingMessage(
         }));
       }
       
-      aiMessage = await safeInvoke(inputMessages, false, initialTier) as AIMessage;
+      aiMessage = await safeInvoke(inputMessages, false) as AIMessage;
     }
 
     if (!aiMessage) {

@@ -1,5 +1,4 @@
 import { ChatGroq } from "@langchain/groq";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 
 const parseKeys = (envVar: string | undefined): string[] => {
   if (!envVar) return [];
@@ -13,7 +12,6 @@ const parseKeys = (envVar: string | undefined): string[] => {
 };
 
 export const GROQ_KEYS = parseKeys(process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY);
-export const GEMINI_KEYS = parseKeys(process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY);
 export const SERPER_KEYS = parseKeys(process.env.SERPER_KEYS || process.env.SERPER_API_KEY);
 export const TAVILY_KEYS = parseKeys(process.env.TAVILY_API_KEYS || process.env.TAVILY_API_KEY);
 
@@ -54,33 +52,20 @@ export class SmartKeyQueue {
 }
 
 export const groqQueue = new SmartKeyQueue('Groq', GROQ_KEYS);
-export const geminiQueue = new SmartKeyQueue('Gemini', GEMINI_KEYS);
 
 let serperIndex = 0;
 let tavilyIndex = 0;
 
-// 🚀 STRICT MODEL MAPPING FOR IMAGES
+// 🚀 STRICT MODEL MAPPING FOR GROQ
 export const getGroqModel = (isVision: boolean = false, useInstant: boolean = false) => {
   const key = groqQueue.getValidKey();
   
-  // STRICTLY sets llama-4-scout for any image uploads!
+  // Use official Groq vision model if handling images, otherwise use Llama 3.3 for best tool calling
   const modelName = isVision 
-    ? 'meta-llama/llama-4-scout-17b-16e-instruct' 
+    ? 'llama-3.2-90b-vision-preview' 
     : (useInstant ? 'llama-3.1-8b-instant' : 'llama-3.3-70b-versatile');
   
   const model = new ChatGroq({
-    apiKey: key,
-    model: modelName,
-    temperature: 0.0,
-    maxRetries: 0, 
-  });
-  (model as any)._inferaKey = key;
-  return model;
-};
-
-export const getGeminiModel = (modelName: 'gemini-2.5-flash' | 'gemini-2.5-pro' = 'gemini-2.5-flash') => {
-  const key = geminiQueue.getValidKey();
-  const model = new ChatGoogleGenerativeAI({
     apiKey: key,
     model: modelName,
     temperature: 0.0,

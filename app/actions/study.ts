@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/utils/supabase/server";
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 
-import { getGeminiModel, getGroqModel, geminiQueue, groqQueue } from './agent/providers';
+import { getGroqModel, groqQueue } from './agent/providers';
 import { uiTools } from './agent/tools';
 import { STUDY_PROMPT } from './agent/prompts';
 
@@ -12,8 +12,6 @@ const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!, 
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-type ModelTier = 'groq' | 'gemini-2.5-flash' | 'gemini-2.5-pro';
 
 // ==========================================
 // SESSION MANAGEMENT
@@ -143,7 +141,7 @@ export async function duplicateStudySession(sessionId: string) {
 }
 
 // ==========================================
-// 🚀 ENHANCED STUDY AGENT (WITH MULTI-MODEL FALLBACK)
+// 🚀 ENHANCED STUDY AGENT (GROQ ONLY)
 // ==========================================
 
 export async function sendStudyMessage(
@@ -223,94 +221,18 @@ export async function sendStudyMessage(
   const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
   const docExtensions = ['.pdf', '.txt', '.csv', '.doc', '.docx'];
 
-  for (const url of fileUrls) {
-    const urlLower = url.toLowerCase();
-    const ext = `.${urlLower.split('.').pop()?.split('?')[0]}` || "";
-    const fileName = url.split('/').pop()?.split('?')[0] || "document";
-
-    if (imageExtensions.includes(ext)) {
-      hasImage = true;
-      fileMarkdown += `\n\n![${fileName}](${url})`;
-      currentMessageParts.push({ type: 'image_url', image_url: { url } });
-      console.log(`🖼️ [IMAGE DETECTED] Prepared for Llama Vision / Groq...`);
-    } else if (docExtensions.includes(ext)) {
-      hasPdfOrDoc = true;
-      fileMarkdown += `\n\n[📁 Attached Study Material: ${fileName}](${url})`;
-      try {
-        const arrayBuffer = await fetch(url).then(r => r.arrayBuffer());
-        const b64Data = Buffer.from(arrayBuffer).toString('base64');
-        
-        let mimeType = 'application/pdf';
-        if (ext === '.txt') mimeType = 'text/plain';
-        if (ext === '.csv') mimeType = 'text/csv';
-
-        currentMessageParts.push({ type: 'media', mimeType, data: b64Data });
-
-        // 🧠 STRICT DOCUMENT EXTRACTION VIA GEMINI 2.5 FLASH
-        console.log(`📄 [EXTRACTING DOCUMENT] Strictly via Gemini 2.5 Flash...`);
-        const extractModel = getGeminiModel('gemini-2.5-flash' as any);
-        const extractRes = await extractModel.invoke([
-            new HumanMessage({
-                content: [
-                    { type: "image_url", image_url: `data:${mimeType};base64,${b64Data}` },
-                    { type: 'text', text: "Extract and summarize all the study-relevant text, data, and key concepts from this document exactly as it appears." }
-                ]
-            })
-        ]) as AIMessage;
-        
-        const extractedText = typeof extractRes.content === 'string' ? extractRes.content : "";
-        docContextBuffer += `\n\n[STUDY MATERIAL CONTEXT FOR '${fileName}']:\n${extractedText}\n[END OF DOCUMENT CONTEXT]\n`;
-      } catch (e) {
-        console.error("Extraction Failed:", e);
-        docContextBuffer += `\n\n[SYSTEM NOTE: Attempted to process '${fileName}' but extraction failed.]\n`;
-      }
-    }
-  }
-
-  const fullUserContent = content + docContextBuffer + fileMarkdown;
-  await supabaseAdmin.from('study_messages').insert({ session_id: sessionId, role: 'user', content: fullUserContent });
-  
-  const inputMessages = [
-    new SystemMessage(finalSystemPrompt),
-    ...langchainHistory,
-    new HumanMessage({ content: currentMessageParts })
-  ];
-
-  // 🛡️ INVOKER WITH MULTI-TIER ROTATION AND GROQ FALLBACK
-  const safeInvoke = async (msgs: BaseMessage[], tools: any[], forceToolName?: string, targetTier: ModelTier = 'groq') => {
+  // 🛡️ INVOKER WITH GROQ ROTATION
+  const safeInvoke = async (msgs: BaseMessage[], tools: any[], forceToolName?: string) => {
     let attempts = 0;
     let lastError: any;
-    let activeTier = targetTier;
-
-    // The rotation map
-    const fallbackSequence: Record<ModelTier, ModelTier> = {
-      'groq': 'gemini-2.5-flash',
-      'gemini-2.5-flash': 'groq',
-      'gemini-2.5-pro': 'gemini-2.5-flash'
-    };
-
-    // If PDF/Doc is present, we cannot use Groq for the main generation easily, force Gemini
-    if (hasPdfOrDoc) {
-      fallbackSequence['gemini-2.5-flash'] = 'gemini-2.5-flash';
-      fallbackSequence['groq'] = 'gemini-2.5-flash';
-      activeTier = 'gemini-2.5-flash';
-    }
 
     while (attempts < 4) {
-      let tempModel;
-      let activeQueue;
+      const tempModel = getGroqModel(hasImage || hasPdfOrDoc, false);
+      const activeQueue = groqQueue;
 
-      if (activeTier === 'groq') {
-        tempModel = getGroqModel(hasImage, false); 
-        activeQueue = groqQueue;
-      } else {
-        tempModel = getGeminiModel(activeTier as any);
-        activeQueue = geminiQueue;
-      }
-
-      // Format messages correctly for Groq (It gets upset by arrays in AI messages)
+      // Groq rejects array formatting for AI messages, fix them before invoking
       const formattedMsgs = msgs.map(msg => {
-        if (activeTier === 'groq' && msg._getType() === 'ai') {
+        if (msg._getType() === 'ai') {
           let textContent = msg.content;
           if (Array.isArray(textContent)) {
             textContent = textContent.map((c: any) => c.text || '').join('');
@@ -335,10 +257,9 @@ export async function sendStudyMessage(
           const failedKey = (tempModel as any)._inferaKey;
           const isServerOverload = errorStr.includes('503') || errorStr.includes('Unavailable');
 
-          console.log(`⚠️ Network Drop [${isServerOverload ? '503 Overload' : '429 Rate Limit'}] on ${activeTier}. Penalizing key ...${failedKey?.slice(-4) || 'unknown'}`);
+          console.log(`⚠️ Network Drop [${isServerOverload ? '503 Overload' : '429 Rate Limit'}] on Groq. Penalizing key ...${failedKey?.slice(-4) || 'unknown'}`);
           
           activeQueue.reportFailure(failedKey, 60); 
-          activeTier = fallbackSequence[activeTier];
           attempts++;
 
           if (isServerOverload) {
@@ -357,12 +278,62 @@ export async function sendStudyMessage(
     throw lastError || new Error("API Connection Failed after multiple attempts.");
   };
 
+  for (const url of fileUrls) {
+    const urlLower = url.toLowerCase();
+    const ext = `.${urlLower.split('.').pop()?.split('?')[0]}` || "";
+    const fileName = url.split('/').pop()?.split('?')[0] || "document";
+
+    if (imageExtensions.includes(ext)) {
+      hasImage = true;
+      fileMarkdown += `\n\n![${fileName}](${url})`;
+      currentMessageParts.push({ type: 'image_url', image_url: { url } });
+      console.log(`🖼️ [IMAGE DETECTED] Prepared for Groq Vision...`);
+    } else if (docExtensions.includes(ext)) {
+      hasPdfOrDoc = true;
+      fileMarkdown += `\n\n[📁 Attached Study Material: ${fileName}](${url})`;
+      try {
+        const arrayBuffer = await fetch(url).then(r => r.arrayBuffer());
+        const b64Data = Buffer.from(arrayBuffer).toString('base64');
+        
+        let mimeType = 'application/pdf';
+        if (ext === '.txt') mimeType = 'text/plain';
+        if (ext === '.csv') mimeType = 'text/csv';
+
+        currentMessageParts.push({ type: 'media', mimeType, data: b64Data });
+
+        // 🧠 STRICT DOCUMENT EXTRACTION VIA GROQ VISION
+        console.log(`📄 [EXTRACTING DOCUMENT] via Groq Vision...`);
+        const extractRes = await safeInvoke([
+            new HumanMessage({
+                content: [
+                    { type: "image_url", image_url: `data:${mimeType};base64,${b64Data}` },
+                    { type: 'text', text: "Extract and summarize all the study-relevant text, data, and key concepts from this document exactly as it appears." }
+                ]
+            })
+        ], []) as AIMessage;
+        
+        const extractedText = typeof extractRes.content === 'string' ? extractRes.content : "";
+        docContextBuffer += `\n\n[STUDY MATERIAL CONTEXT FOR '${fileName}']:\n${extractedText}\n[END OF DOCUMENT CONTEXT]\n`;
+      } catch (e) {
+        console.error("Extraction Failed:", e);
+        docContextBuffer += `\n\n[SYSTEM NOTE: Attempted to process '${fileName}' but extraction failed.]\n`;
+      }
+    }
+  }
+
+  const fullUserContent = content + docContextBuffer + fileMarkdown;
+  await supabaseAdmin.from('study_messages').insert({ session_id: sessionId, role: 'user', content: fullUserContent });
+  
+  const inputMessages = [
+    new SystemMessage(finalSystemPrompt),
+    ...langchainHistory,
+    new HumanMessage({ content: currentMessageParts })
+  ];
+
+
   let finalContent = "";
   try {
-    // Default to Groq for speed unless there's a document
-    const initialTier: ModelTier = hasPdfOrDoc ? 'gemini-2.5-flash' : 'groq';
-    
-    const aiMessage = await safeInvoke(inputMessages, activeUiTools, toolToForce, initialTier) as AIMessage;
+    const aiMessage = await safeInvoke(inputMessages, activeUiTools, toolToForce) as AIMessage;
     finalContent = typeof aiMessage.content === 'string' ? aiMessage.content : "";
 
     // Parse chameleon widgets
