@@ -27,9 +27,9 @@ export const webSearchTool = tool(
   },
   {
     name: "web_search",
-    description: "Executes a live internet search. Use this ONLY when you need real-time data, news, statistics, or facts that are not in your training data. Do not use this if the answer is already in an uploaded document.",
+    description: "Executes a live internet search. You MUST use this immediately for LIVE SPORTS (like IPL points tables, cricket scores), real-time news, and current events. Your internal training data is outdated for these topics.",
     schema: z.object({
-      keyword: z.string().describe("The precise Google Search query to execute. Expand acronyms and use highly specific keywords (e.g., 'React 18 useId hook documentation' instead of just 'react').")
+      keyword: z.string().describe("The precise Google Search query to execute. Expand acronyms and INCLUDE THE CURRENT YEAR (e.g., 'IPL points table 2024') to get fresh results.")
     })
   }
 );
