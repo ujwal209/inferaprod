@@ -19,7 +19,9 @@ export const ChatPromptBar = ({ onSubmit, onStop, isGenerating }: any) => {
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { 
+    // Allow 'Enter' to naturally create a new line.
+    // Trigger submit only if they press Ctrl+Enter or Cmd+Enter.
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { 
       e.preventDefault(); 
       handleAction(); 
     }
@@ -47,7 +49,7 @@ export const ChatPromptBar = ({ onSubmit, onStop, isGenerating }: any) => {
           value={text} 
           onChange={handleInput} 
           onKeyDown={handleKeyDown} 
-          placeholder="Message the Execution Agent..." 
+          placeholder="Message the Execution Agent... (Ctrl + Enter to send)" 
           className="flex-1 bg-transparent text-[15px] text-zinc-900 dark:text-zinc-100 outline-none placeholder:text-zinc-400 min-h-[44px] max-h-[150px] resize-none custom-scrollbar p-4 w-full min-w-0 leading-relaxed" 
           disabled={isGenerating} 
           rows={1} 

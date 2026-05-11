@@ -223,6 +223,12 @@ export default function LandingPage() {
 
           <div className="max-w-[1400px] mx-auto px-5 sm:px-8 lg:px-12 relative flex flex-col items-center text-center z-10 w-full">
         
+            {/* BRAND TAGLINE */}
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-1000 mb-4 sm:mb-6">
+              <span className="font-google-sans text-[11px] sm:text-[13px] font-bold uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-400">
+                Where intelligence goes deeper.
+              </span>
+            </div>
 
             {/* Fluid Responsive Headline - Unified Blue Gradient */}
             <div className="animate-in fade-in zoom-in slide-in-from-bottom-8 duration-1000">

@@ -24,9 +24,11 @@ export const ChatInput = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Allow 'Enter' to naturally create a new line.
+    // Trigger submit only if they press Ctrl+Enter or Cmd+Enter.
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      handleSubmit(e);
+      handleSubmit(e as unknown as React.FormEvent);
     }
   };
 
@@ -50,7 +52,7 @@ export const ChatInput = ({
             value={text}
             onChange={(e) => { setText(e.target.value); adjustHeight(); }}
             onKeyDown={handleKeyDown}
-            placeholder="Ask a question or type a message..."
+            placeholder="Ask a question or type a message... (Ctrl + Enter to send)"
             className="w-full max-h-[200px] bg-transparent border-none focus:ring-0 text-[15px] outline-none transition-all text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 resize-none leading-relaxed custom-scrollbar p-4" 
             rows={1}
           />
